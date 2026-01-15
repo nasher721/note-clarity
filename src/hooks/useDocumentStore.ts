@@ -307,6 +307,77 @@ export function useDocumentStore(userId: string | undefined) {
     return currentDocument?.annotations.find(a => a.chunkId === chunkId);
   }, [currentDocument]);
 
+  const bulkAnnotateChunks = useCallback(async (
+    chunkIds: string[],
+    label: PrimaryLabel,
+    options: {
+      removeReason?: RemoveReason;
+      condenseStrategy?: CondenseStrategy;
+      scope?: LabelScope;
+    } = {}
+  ) => {
+    if (!currentDocument || !userId || chunkIds.length === 0) return;
+
+    try {
+      // Create annotations for all chunks
+      const annotationInserts = chunkIds.map(chunkId => ({
+        chunk_id: chunkId,
+        user_id: userId,
+        label: label as DbPrimaryLabel,
+        remove_reason: options.removeReason,
+        condense_strategy: options.condenseStrategy,
+        scope: (options.scope || 'this_document') as DbLabelScope,
+      }));
+
+      const { error } = await supabase
+        .from('chunk_annotations')
+        .upsert(annotationInserts, {
+          onConflict: 'chunk_id,user_id',
+        });
+
+      if (error) throw error;
+
+      // Update local state
+      const newAnnotations: ChunkAnnotation[] = chunkIds.map(chunkId => {
+        const chunk = currentDocument.chunks.find(c => c.id === chunkId);
+        return {
+          chunkId,
+          rawText: chunk?.text || '',
+          sectionType: chunk?.type || 'unknown',
+          label,
+          removeReason: options.removeReason,
+          condenseStrategy: options.condenseStrategy,
+          scope: options.scope || 'this_document',
+          timestamp: new Date(),
+          userId,
+        };
+      });
+
+      const updatedDoc = {
+        ...currentDocument,
+        annotations: [
+          ...currentDocument.annotations.filter(a => !chunkIds.includes(a.chunkId)),
+          ...newAnnotations,
+        ],
+      };
+
+      setCurrentDocument(updatedDoc);
+      setDocuments(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
+
+      toast({
+        title: 'Bulk labeling complete',
+        description: `Applied ${label} to ${chunkIds.length} chunks.`,
+      });
+    } catch (error: any) {
+      console.error('Failed to bulk annotate:', error);
+      toast({
+        title: 'Bulk labeling failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  }, [currentDocument, userId]);
+
   const getCleanedText = useCallback((): string => {
     if (!currentDocument) return '';
 
@@ -326,6 +397,11 @@ export function useDocumentStore(userId: string | undefined) {
   }, [currentDocument]);
 
   const selectDocument = useCallback((docId: string) => {
+    if (!docId) {
+      setCurrentDocument(null);
+      setSelectedChunkId(null);
+      return;
+    }
     const doc = documents.find(d => d.id === docId);
     if (doc) {
       setCurrentDocument(doc);
@@ -368,6 +444,7 @@ export function useDocumentStore(userId: string | undefined) {
     setSelectedChunkId,
     createDocument,
     annotateChunk,
+    bulkAnnotateChunks,
     removeAnnotation,
     getAnnotation,
     getCleanedText,

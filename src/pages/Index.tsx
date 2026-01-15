@@ -7,6 +7,7 @@ import { LabelingPanel } from '@/components/clinical/LabelingPanel';
 import { DiffPreview } from '@/components/clinical/DiffPreview';
 import { InferenceMode } from '@/components/clinical/InferenceMode';
 import { DocumentHistory } from '@/components/clinical/DocumentHistory';
+import { BulkActions } from '@/components/clinical/BulkActions';
 import { useDocumentStore } from '@/hooks/useDocumentStore';
 import { useAuth } from '@/hooks/useAuth';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -31,6 +32,7 @@ const Index = () => {
     setSelectedChunkId,
     createDocument,
     annotateChunk,
+    bulkAnnotateChunks,
     removeAnnotation,
     getAnnotation,
     selectDocument,
@@ -116,19 +118,29 @@ const Index = () => {
             {/* Document chunks panel */}
             <ResizablePanel defaultSize={35} minSize={25}>
               <div className="h-full flex flex-col">
-                <div className="panel-header flex items-center justify-between">
+                <div className="panel-header flex items-center justify-between gap-2">
                   <span>
                     Document Chunks
                     <span className="ml-2 text-xs font-normal text-muted-foreground">
                       ({currentDocument.chunks.length} segments)
                     </span>
                   </span>
-                  <button 
-                    onClick={() => setSelectedChunkId(null)}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    New Document
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <BulkActions
+                      chunks={currentDocument.chunks}
+                      annotations={currentDocument.annotations}
+                      onBulkAnnotate={bulkAnnotateChunks}
+                    />
+                    <button 
+                      onClick={() => {
+                        setSelectedChunkId(null);
+                        selectDocument('');
+                      }}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      New
+                    </button>
+                  </div>
                 </div>
                 <ScrollArea className="flex-1">
                   <div className="p-4">
