@@ -18,8 +18,8 @@ import {
 import { User } from '@supabase/supabase-js';
 
 interface HeaderProps {
-  mode: 'training' | 'inference' | 'batch';
-  onModeChange: (mode: 'training' | 'inference' | 'batch') => void;
+  mode: 'training' | 'inference' | 'batch' | 'chart';
+  onModeChange: (mode: 'training' | 'inference' | 'batch' | 'chart') => void;
   user?: User | null;
   onSignOut?: () => void;
 }
@@ -63,17 +63,19 @@ export function Header({ mode, onModeChange, user, onSignOut }: HeaderProps) {
                   <span>Clear selection</span>
                   <span className="kbd">Esc</span>
                 </div>
-                {mode === 'batch' && (
+                {(mode === 'batch' || mode === 'chart') && (
                   <>
                     <div className="border-t pt-2 mt-2">
-                      <p className="text-xs text-muted-foreground mb-1">Batch Mode</p>
+                      <p className="text-xs text-muted-foreground mb-1">
+                        {mode === 'batch' ? 'Batch Mode' : 'Chart Mode'}
+                      </p>
                     </div>
                     <div className="flex items-center justify-between gap-4">
-                      <span>Previous doc</span>
+                      <span>Previous {mode === 'batch' ? 'doc' : 'note'}</span>
                       <span className="kbd">←</span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
-                      <span>Next doc</span>
+                      <span>Next {mode === 'batch' ? 'doc' : 'note'}</span>
                       <span className="kbd">→</span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
