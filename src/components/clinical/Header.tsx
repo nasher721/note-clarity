@@ -1,4 +1,4 @@
-import { FileText, HelpCircle } from 'lucide-react';
+import { FileText, HelpCircle, LogOut, User as UserIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ModeToggle } from './ModeToggle';
 import { ThemeToggle } from './ThemeToggle';
@@ -7,13 +7,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { User } from '@supabase/supabase-js';
 
 interface HeaderProps {
   mode: 'training' | 'inference';
   onModeChange: (mode: 'training' | 'inference') => void;
+  user?: User | null;
+  onSignOut?: () => void;
 }
 
-export function Header({ mode, onModeChange }: HeaderProps) {
+export function Header({ mode, onModeChange, user, onSignOut }: HeaderProps) {
   return (
     <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-50">
       <div className="container flex items-center justify-between h-14 px-4">
@@ -55,7 +66,33 @@ export function Header({ mode, onModeChange }: HeaderProps) {
               </div>
             </TooltipContent>
           </Tooltip>
+          
           <ThemeToggle />
+
+          {user && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="rounded-full">
+                  <UserIcon className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium">Signed in as</p>
+                    <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {user.email}
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onSignOut} className="text-destructive">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
     </header>

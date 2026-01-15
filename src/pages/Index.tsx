@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/clinical/Header';
 import { DocumentUploader } from '@/components/clinical/DocumentUploader';
 import { ChunkViewer } from '@/components/clinical/ChunkViewer';
 import { LabelingPanel } from '@/components/clinical/LabelingPanel';
 import { DiffPreview } from '@/components/clinical/DiffPreview';
 import { InferenceMode } from '@/components/clinical/InferenceMode';
+import { DocumentHistory } from '@/components/clinical/DocumentHistory';
 import { useDocumentStore } from '@/hooks/useDocumentStore';
+import { useAuth } from '@/hooks/useAuth';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Loader2 } from 'lucide-react';
+import { ChunkAnnotation } from '@/types/clinical';
 import { 
   ResizablePanelGroup, 
   ResizablePanel, 
@@ -14,8 +19,13 @@ import {
 } from '@/components/ui/resizable';
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { user, loading: authLoading, isAuthenticated, signOut } = useAuth();
   const [mode, setMode] = useState<'training' | 'inference'>('training');
+  const [learnedRules, setLearnedRules] = useState<ChunkAnnotation[]>([]);
+  
   const {
+    documents,
     currentDocument,
     selectedChunkId,
     setSelectedChunkId,
@@ -23,22 +33,47 @@ const Index = () => {
     annotateChunk,
     removeAnnotation,
     getAnnotation,
-  } = useDocumentStore();
+    selectDocument,
+    getLearnedRules,
+    loading: docLoading,
+  } = useDocumentStore(user?.id);
+
+  // Redirect to auth if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate('/auth', { replace: true });
+    }
+  }, [authLoading, isAuthenticated, navigate]);
+
+  // Load learned rules when switching to inference mode
+  useEffect(() => {
+    if (mode === 'inference' && user?.id) {
+      getLearnedRules().then(setLearnedRules);
+    }
+  }, [mode, user?.id, getLearnedRules]);
 
   const selectedChunk = currentDocument?.chunks.find(c => c.id === selectedChunkId);
   const currentAnnotation = selectedChunkId ? getAnnotation(selectedChunkId) : undefined;
 
-  // Collect all global/note_type annotations for inference
-  const learnedAnnotations = currentDocument?.annotations.filter(
-    a => a.scope === 'global' || a.scope === 'note_type' || a.scope === 'service'
-  ) || [];
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (mode === 'inference') {
     return (
       <div className="min-h-screen flex flex-col bg-background">
-        <Header mode={mode} onModeChange={setMode} />
+        <Header 
+          mode={mode} 
+          onModeChange={setMode} 
+          user={user}
+          onSignOut={signOut}
+        />
         <main className="flex-1 overflow-hidden">
-          <InferenceMode learnedAnnotations={learnedAnnotations} />
+          <InferenceMode learnedAnnotations={learnedRules} />
         </main>
       </div>
     );
@@ -46,30 +81,54 @@ const Index = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <Header mode={mode} onModeChange={setMode} />
+      <Header 
+        mode={mode} 
+        onModeChange={setMode}
+        user={user}
+        onSignOut={signOut}
+      />
       
       <main className="flex-1 overflow-hidden">
         {!currentDocument ? (
-          <div className="p-6 max-w-4xl mx-auto">
+          <div className="p-6 max-w-5xl mx-auto">
             <div className="mb-6 p-4 bg-accent/30 rounded-lg border border-accent">
               <h2 className="font-semibold mb-2">Training Mode</h2>
               <p className="text-sm text-muted-foreground">
-                Upload a clinical document to begin labeling chunks. Your annotations will be used 
-                to train rules that can automatically clean future documents.
+                Upload a clinical document to begin labeling chunks. Your annotations are saved 
+                to the cloud and used to train rules that can automatically clean future documents.
               </p>
             </div>
+            
             <DocumentUploader onDocumentSubmit={createDocument} />
+            
+            {documents.length > 0 && (
+              <div className="mt-8">
+                <DocumentHistory 
+                  documents={documents} 
+                  onSelect={selectDocument}
+                  loading={docLoading}
+                />
+              </div>
+            )}
           </div>
         ) : (
           <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Document chunks panel */}
             <ResizablePanel defaultSize={35} minSize={25}>
               <div className="h-full flex flex-col">
-                <div className="panel-header">
-                  Document Chunks
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    ({currentDocument.chunks.length} segments)
+                <div className="panel-header flex items-center justify-between">
+                  <span>
+                    Document Chunks
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      ({currentDocument.chunks.length} segments)
+                    </span>
                   </span>
+                  <button 
+                    onClick={() => setSelectedChunkId(null)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    New Document
+                  </button>
                 </div>
                 <ScrollArea className="flex-1">
                   <div className="p-4">
