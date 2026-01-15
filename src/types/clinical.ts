@@ -59,6 +59,20 @@ export interface ChunkAnnotation {
   overrideJustification?: string;
 }
 
+// Text highlight annotation for free-form selection
+export interface TextHighlight {
+  id: string;
+  startIndex: number;
+  endIndex: number;
+  text: string;
+  label: PrimaryLabel;
+  removeReason?: RemoveReason;
+  condenseStrategy?: CondenseStrategy;
+  scope: LabelScope;
+  timestamp: Date;
+  userId: string;
+}
+
 export interface ClinicalDocument {
   id: string;
   originalText: string;

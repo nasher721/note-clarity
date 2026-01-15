@@ -12,14 +12,18 @@ import { BatchUploader } from '@/components/clinical/BatchUploader';
 import { BatchQueuePanel } from '@/components/clinical/BatchQueuePanel';
 import { ChartUploader } from '@/components/clinical/ChartUploader';
 import { ChartQueuePanel } from '@/components/clinical/ChartQueuePanel';
+import { TextAnnotator } from '@/components/clinical/TextAnnotator';
 import { useDocumentStore } from '@/hooks/useDocumentStore';
 import { useBatchProcessor } from '@/hooks/useBatchProcessor';
 import { useChartProcessor } from '@/hooks/useChartProcessor';
+import { useTextHighlights } from '@/hooks/useTextHighlights';
 import { useAuth } from '@/hooks/useAuth';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Loader2, Layers, ClipboardList } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Loader2, Layers, ClipboardList, LayoutGrid, Highlighter, Check, Scissors, Trash2 } from 'lucide-react';
 import { ChunkAnnotation } from '@/types/clinical';
+import { Badge } from '@/components/ui/badge';
 import { 
   ResizablePanelGroup, 
   ResizablePanel, 
@@ -84,7 +88,18 @@ const Index = () => {
   // Selected chunk for chart mode
   const [chartSelectedChunkId, setChartSelectedChunkId] = useState<string | null>(null);
 
-  // Redirect to auth if not authenticated
+  // Annotation view mode: 'chunks' (segment-based) or 'highlight' (free selection)
+  const [annotationView, setAnnotationView] = useState<'chunks' | 'highlight'>('chunks');
+
+  // Text highlighting hook
+  const {
+    highlights,
+    addHighlight,
+    removeHighlight,
+    updateHighlight,
+    clearHighlights,
+    getStats: getHighlightStats,
+  } = useTextHighlights(user?.id);
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       navigate('/auth', { replace: true });
@@ -378,27 +393,77 @@ const Index = () => {
               </>
             )}
 
-            {/* Document chunks panel */}
-            <ResizablePanel defaultSize={(mode === 'batch' || mode === 'chart') ? 30 : 35} minSize={20}>
+            {/* Document panel - with view toggle */}
+            <ResizablePanel defaultSize={(mode === 'batch' || mode === 'chart') ? 30 : 40} minSize={25}>
               <div className="h-full flex flex-col">
                 <div className="panel-header flex items-center justify-between gap-2">
-                  <span>
-                    {mode === 'chart' ? 'Note Chunks' : 'Document Chunks'}
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      ({activeDocument?.chunks.length || 0} segments)
-                    </span>
-                  </span>
                   <div className="flex items-center gap-2">
-                    {activeDocument && (
+                    {/* View mode toggle */}
+                    <Tabs value={annotationView} onValueChange={(v) => setAnnotationView(v as 'chunks' | 'highlight')}>
+                      <TabsList className="h-7">
+                        <TabsTrigger value="chunks" className="text-xs gap-1 px-2 h-6">
+                          <LayoutGrid className="h-3 w-3" />
+                          Chunks
+                        </TabsTrigger>
+                        <TabsTrigger value="highlight" className="text-xs gap-1 px-2 h-6">
+                          <Highlighter className="h-3 w-3" />
+                          Highlight
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                    
+                    {annotationView === 'chunks' && (
+                      <span className="text-xs text-muted-foreground">
+                        ({activeDocument?.chunks.length || 0} segments)
+                      </span>
+                    )}
+                    
+                    {annotationView === 'highlight' && (
+                      <div className="flex items-center gap-1.5">
+                        {getHighlightStats().keep > 0 && (
+                          <Badge variant="outline" className="text-[10px] gap-0.5 py-0 h-5 bg-green-100 dark:bg-green-900/30 border-green-300">
+                            <Check className="h-2.5 w-2.5" />
+                            {getHighlightStats().keep}
+                          </Badge>
+                        )}
+                        {getHighlightStats().condense > 0 && (
+                          <Badge variant="outline" className="text-[10px] gap-0.5 py-0 h-5 bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300">
+                            <Scissors className="h-2.5 w-2.5" />
+                            {getHighlightStats().condense}
+                          </Badge>
+                        )}
+                        {getHighlightStats().remove > 0 && (
+                          <Badge variant="outline" className="text-[10px] gap-0.5 py-0 h-5 bg-red-100 dark:bg-red-900/30 border-red-300">
+                            <Trash2 className="h-2.5 w-2.5" />
+                            {getHighlightStats().remove}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {activeDocument && annotationView === 'chunks' && (
                       <BulkActions
                         chunks={activeDocument.chunks}
                         annotations={activeDocument.annotations}
                         onBulkAnnotate={mode === 'chart' ? chartBulkAnnotateChunks : bulkAnnotateChunks}
                       />
                     )}
+                    {annotationView === 'highlight' && highlights.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearHighlights}
+                        className="text-xs h-6 px-2 text-muted-foreground"
+                      >
+                        Clear All
+                      </Button>
+                    )}
                     <button 
                       onClick={() => {
                         setActiveSelectedChunkId(null);
+                        clearHighlights();
                         if (mode === 'chart') {
                           clearChart();
                         } else if (mode === 'batch') {
@@ -413,18 +478,32 @@ const Index = () => {
                     </button>
                   </div>
                 </div>
-                <ScrollArea className="flex-1">
-                  <div className="p-4">
-                    {activeDocument && (
-                      <ChunkViewer
-                        chunks={activeDocument.chunks}
-                        annotations={activeDocument.annotations}
-                        selectedChunkId={activeSelectedChunkId}
-                        onChunkSelect={setActiveSelectedChunkId}
-                      />
-                    )}
-                  </div>
-                </ScrollArea>
+                
+                {/* Content based on annotation view */}
+                {annotationView === 'chunks' ? (
+                  <ScrollArea className="flex-1">
+                    <div className="p-4">
+                      {activeDocument && (
+                        <ChunkViewer
+                          chunks={activeDocument.chunks}
+                          annotations={activeDocument.annotations}
+                          selectedChunkId={activeSelectedChunkId}
+                          onChunkSelect={setActiveSelectedChunkId}
+                        />
+                      )}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  activeDocument && (
+                    <TextAnnotator
+                      text={activeDocument.originalText}
+                      highlights={highlights}
+                      onAddHighlight={addHighlight}
+                      onRemoveHighlight={removeHighlight}
+                      onUpdateHighlight={updateHighlight}
+                    />
+                  )
+                )}
               </div>
             </ResizablePanel>
 
