@@ -1,4 +1,4 @@
-import { FileText, HelpCircle, LogOut, User as UserIcon } from 'lucide-react';
+import { FileText, HelpCircle, LogOut, User as UserIcon, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ModeToggle } from './ModeToggle';
 import { ThemeToggle } from './ThemeToggle';
@@ -18,8 +18,8 @@ import {
 import { User } from '@supabase/supabase-js';
 
 interface HeaderProps {
-  mode: 'training' | 'inference';
-  onModeChange: (mode: 'training' | 'inference') => void;
+  mode: 'training' | 'inference' | 'batch';
+  onModeChange: (mode: 'training' | 'inference' | 'batch') => void;
   user?: User | null;
   onSignOut?: () => void;
 }
@@ -63,6 +63,25 @@ export function Header({ mode, onModeChange, user, onSignOut }: HeaderProps) {
                   <span>Clear selection</span>
                   <span className="kbd">Esc</span>
                 </div>
+                {mode === 'batch' && (
+                  <>
+                    <div className="border-t pt-2 mt-2">
+                      <p className="text-xs text-muted-foreground mb-1">Batch Mode</p>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Previous doc</span>
+                      <span className="kbd">←</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Next doc</span>
+                      <span className="kbd">→</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>Next unlabeled</span>
+                      <span className="kbd">N</span>
+                    </div>
+                  </>
+                )}
               </div>
             </TooltipContent>
           </Tooltip>
