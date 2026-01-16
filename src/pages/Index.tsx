@@ -91,15 +91,22 @@ const Index = () => {
   // Annotation view mode: 'chunks' (segment-based) or 'highlight' (free selection)
   const [annotationView, setAnnotationView] = useState<'chunks' | 'highlight'>('chunks');
 
-  // Text highlighting hook
+  // Text highlighting hook - pass documentId for persistence
+  const activeDocumentId = mode === 'batch' && currentBatchDocument?.document
+    ? currentBatchDocument.document.id
+    : mode === 'chart' && chartCurrentDocument
+    ? chartCurrentDocument.id
+    : currentDocument?.id;
+
   const {
     highlights,
+    loading: highlightsLoading,
     addHighlight,
     removeHighlight,
     updateHighlight,
     clearHighlights,
     getStats: getHighlightStats,
-  } = useTextHighlights(user?.id);
+  } = useTextHighlights(user?.id, activeDocumentId);
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       navigate('/auth', { replace: true });

@@ -192,6 +192,59 @@ export type Database = {
         }
         Relationships: []
       }
+      text_highlights: {
+        Row: {
+          condense_strategy: string | null
+          created_at: string
+          document_id: string
+          end_index: number
+          id: string
+          label: Database["public"]["Enums"]["primary_label"]
+          remove_reason: string | null
+          scope: Database["public"]["Enums"]["label_scope"]
+          start_index: number
+          text: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          condense_strategy?: string | null
+          created_at?: string
+          document_id: string
+          end_index: number
+          id?: string
+          label: Database["public"]["Enums"]["primary_label"]
+          remove_reason?: string | null
+          scope?: Database["public"]["Enums"]["label_scope"]
+          start_index: number
+          text: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          condense_strategy?: string | null
+          created_at?: string
+          document_id?: string
+          end_index?: number
+          id?: string
+          label?: Database["public"]["Enums"]["primary_label"]
+          remove_reason?: string | null
+          scope?: Database["public"]["Enums"]["label_scope"]
+          start_index?: number
+          text?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "text_highlights_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "clinical_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
