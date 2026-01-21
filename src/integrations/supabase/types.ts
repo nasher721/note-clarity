@@ -192,6 +192,39 @@ export type Database = {
         }
         Relationships: []
       }
+      phi_access_logs: {
+        Row: {
+          accessed_at: string
+          action: string
+          id: string
+          ip_address: unknown
+          record_id: string
+          table_name: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          accessed_at?: string
+          action: string
+          id?: string
+          ip_address?: unknown
+          record_id: string
+          table_name: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          accessed_at?: string
+          action?: string
+          id?: string
+          ip_address?: unknown
+          record_id?: string
+          table_name?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       text_highlights: {
         Row: {
           condense_strategy: string | null
