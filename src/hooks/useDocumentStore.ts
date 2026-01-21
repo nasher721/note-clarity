@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { parseDocument, findDuplicates } from '@/utils/chunkParser';
 import { PrimaryLabel, RemoveReason, CondenseStrategy, LabelScope, DocumentChunk, ChunkAnnotation, ClinicalDocument } from '@/types/clinical';
 import { toast } from '@/hooks/use-toast';
+import { usePhiAuditLog } from '@/hooks/usePhiAuditLog';
 
 type DbChunkType = 'section_header' | 'paragraph' | 'bullet_list' | 'imaging_report' | 'lab_values' | 'medication_list' | 'vital_signs' | 'attestation' | 'unknown';
 type DbPrimaryLabel = 'KEEP' | 'CONDENSE' | 'REMOVE';
@@ -13,6 +14,8 @@ export function useDocumentStore(userId: string | undefined) {
   const [currentDocument, setCurrentDocument] = useState<ClinicalDocument | null>(null);
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  const { logDocumentAccess, logChunkAccess } = usePhiAuditLog(userId);
 
   // Load user's documents
   useEffect(() => {
@@ -95,11 +98,18 @@ export function useDocumentStore(userId: string | undefined) {
         }));
 
         setDocuments(loadedDocs);
+        
+        // Log PHI access for all loaded documents
+        if (loadedDocs.length > 0) {
+          loadedDocs.forEach(doc => logDocumentAccess(doc.id, 'SELECT'));
+        }
       } catch (error: any) {
-        console.error('Failed to load documents:', error);
+        if (import.meta.env.DEV) {
+          console.error('Failed to load documents:', error);
+        }
         toast({
           title: 'Failed to load documents',
-          description: error.message,
+          description: 'An error occurred while loading.',
           variant: 'destructive',
         });
       } finally {
@@ -108,7 +118,7 @@ export function useDocumentStore(userId: string | undefined) {
     };
 
     loadDocuments();
-  }, [userId]);
+  }, [userId, logDocumentAccess]);
 
   const createDocument = useCallback(async (text: string, noteType?: string, service?: string): Promise<ClinicalDocument | null> => {
     if (!userId) return null;
@@ -176,19 +186,25 @@ export function useDocumentStore(userId: string | undefined) {
       setDocuments(prev => [newDoc, ...prev]);
       setCurrentDocument(newDoc);
       
+      // Log PHI creation
+      logDocumentAccess(newDoc.id, 'INSERT');
+      logChunkAccess(newDoc.chunks.map(c => c.id), 'INSERT');
+      
       toast({ title: 'Document saved', description: 'Your document has been saved to the cloud.' });
       
       return newDoc;
     } catch (error: any) {
-      console.error('Failed to create document:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to create document:', error);
+      }
       toast({
         title: 'Failed to save document',
-        description: error.message,
+        description: 'An error occurred while saving.',
         variant: 'destructive',
       });
       return null;
     }
-  }, [userId]);
+  }, [userId, logDocumentAccess, logChunkAccess]);
 
   const annotateChunk = useCallback(async (
     chunkId: string,
@@ -265,10 +281,12 @@ export function useDocumentStore(userId: string | undefined) {
           });
       }
     } catch (error: any) {
-      console.error('Failed to save annotation:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to save annotation:', error);
+      }
       toast({
         title: 'Failed to save annotation',
-        description: error.message,
+        description: 'An error occurred while saving.',
         variant: 'destructive',
       });
     }
@@ -294,10 +312,12 @@ export function useDocumentStore(userId: string | undefined) {
       setCurrentDocument(updatedDoc);
       setDocuments(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
     } catch (error: any) {
-      console.error('Failed to remove annotation:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to remove annotation:', error);
+      }
       toast({
         title: 'Failed to remove annotation',
-        description: error.message,
+        description: 'An error occurred while removing.',
         variant: 'destructive',
       });
     }
@@ -369,10 +389,12 @@ export function useDocumentStore(userId: string | undefined) {
         description: `Applied ${label} to ${chunkIds.length} chunks.`,
       });
     } catch (error: any) {
-      console.error('Failed to bulk annotate:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to bulk annotate:', error);
+      }
       toast({
         title: 'Bulk labeling failed',
-        description: error.message,
+        description: 'An error occurred while applying labels.',
         variant: 'destructive',
       });
     }
@@ -406,8 +428,10 @@ export function useDocumentStore(userId: string | undefined) {
     if (doc) {
       setCurrentDocument(doc);
       setSelectedChunkId(null);
+      // Log PHI access when user selects a document to view
+      logDocumentAccess(doc.id, 'SELECT');
     }
-  }, [documents]);
+  }, [documents, logDocumentAccess]);
 
   const getLearnedRules = useCallback(async (): Promise<ChunkAnnotation[]> => {
     if (!userId) return [];
@@ -432,7 +456,9 @@ export function useDocumentStore(userId: string | undefined) {
         userId: r.user_id,
       }));
     } catch (error) {
-      console.error('Failed to load learned rules:', error);
+      if (import.meta.env.DEV) {
+        console.error('Failed to load learned rules:', error);
+      }
       return [];
     }
   }, [userId]);
