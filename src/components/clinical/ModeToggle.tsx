@@ -1,10 +1,10 @@
 import { Button } from '@/components/ui/button';
-import { GraduationCap, Wand2, Layers, ClipboardList } from 'lucide-react';
+import { GraduationCap, Wand2, Layers, ClipboardList, Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ModeToggleProps {
-  mode: 'training' | 'inference' | 'batch' | 'chart';
-  onModeChange: (mode: 'training' | 'inference' | 'batch' | 'chart') => void;
+  mode: 'training' | 'inference' | 'batch' | 'chart' | 'intelligence';
+  onModeChange: (mode: 'training' | 'inference' | 'batch' | 'chart' | 'intelligence') => void;
 }
 
 export function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
@@ -57,6 +57,18 @@ export function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
       >
         <Wand2 className="h-4 w-4" />
         <span className="hidden sm:inline">Inference</span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => onModeChange('intelligence')}
+        className={cn(
+          'gap-2 transition-all',
+          mode === 'intelligence' && 'bg-background shadow-sm'
+        )}
+      >
+        <Brain className="h-4 w-4" />
+        <span className="hidden sm:inline">AI Hub</span>
       </Button>
     </div>
   );
