@@ -1,10 +1,9 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { TextHighlight, PrimaryLabel, RemoveReason, CondenseStrategy, LabelScope, REMOVE_REASON_LABELS, CONDENSE_STRATEGY_LABELS, SCOPE_LABELS } from '@/types/clinical';
+import { useState, useRef, useCallback, useMemo } from 'react';
+import { TextHighlight, PrimaryLabel, RemoveReason, CondenseStrategy, LabelScope, SCOPE_LABELS } from '@/types/clinical';
+import { useAnnotationToolShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Check, Scissors, Trash2, X, Highlighter, MousePointer, Eraser } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -159,42 +158,21 @@ export function TextAnnotator({
     }
   }, [activeTool, onRemoveHighlight]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      switch (e.key) {
-        case 'v':
-        case 'V':
-          setActiveTool('select');
-          break;
-        case 'k':
-        case 'K':
-          setActiveTool('keep');
-          break;
-        case 'c':
-        case 'C':
-          setActiveTool('condense');
-          break;
-        case 'r':
-        case 'R':
-          setActiveTool('remove');
-          break;
-        case 'e':
-        case 'E':
-          setActiveTool('erase');
-          break;
-        case 'Escape':
-          setSelectedHighlight(null);
-          setPendingSelection(null);
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  // Use centralized keyboard shortcuts
+  useAnnotationToolShortcuts(
+    {
+      onSelect: () => setActiveTool('select'),
+      onKeep: () => setActiveTool('keep'),
+      onCondense: () => setActiveTool('condense'),
+      onRemove: () => setActiveTool('remove'),
+      onErase: () => setActiveTool('erase'),
+      onClear: () => {
+        setSelectedHighlight(null);
+        setPendingSelection(null);
+      },
+    },
+    true
+  );
 
   const toolButtons = [
     { tool: 'select' as Tool, icon: MousePointer, label: 'Select', shortcut: 'V' },

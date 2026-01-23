@@ -9,12 +9,12 @@ import {
   CONDENSE_STRATEGY_LABELS,
   SCOPE_LABELS 
 } from '@/types/clinical';
+import { useLabelingShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { 
   Check, 
@@ -68,30 +68,16 @@ export function LabelingPanel({
     setShowCriticalWarning(false);
   }, [chunk?.id, currentLabel, currentReason, currentStrategy, currentScope]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!chunk) return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      switch (e.key) {
-        case '1':
-          setLabel('KEEP');
-          break;
-        case '2':
-          setLabel('CONDENSE');
-          break;
-        case '3':
-          setLabel('REMOVE');
-          break;
-        case 'Escape':
-          setLabel(null);
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [chunk]);
+  // Use centralized keyboard shortcuts
+  useLabelingShortcuts(
+    {
+      onKeep: () => setLabel('KEEP'),
+      onCondense: () => setLabel('CONDENSE'),
+      onRemove: () => setLabel('REMOVE'),
+      onClear: () => setLabel(null),
+    },
+    !!chunk
+  );
 
   if (!chunk) {
     return (
