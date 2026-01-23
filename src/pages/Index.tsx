@@ -13,6 +13,8 @@ import { BatchQueuePanel } from '@/components/clinical/BatchQueuePanel';
 import { ChartUploader } from '@/components/clinical/ChartUploader';
 import { ChartQueuePanel } from '@/components/clinical/ChartQueuePanel';
 import { TextAnnotator } from '@/components/clinical/TextAnnotator';
+import { IntelligenceHub } from '@/components/intelligence/IntelligenceHub';
+import { AIAssistantWidget } from '@/components/intelligence/AIAssistantWidget';
 import { useDocumentStore } from '@/hooks/useDocumentStore';
 import { useBatchProcessor } from '@/hooks/useBatchProcessor';
 import { useChartProcessor } from '@/hooks/useChartProcessor';
@@ -33,7 +35,7 @@ import {
 const Index = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading, isAuthenticated, signOut } = useAuth();
-  const [mode, setMode] = useState<'training' | 'inference' | 'batch' | 'chart'>('training');
+  const [mode, setMode] = useState<'training' | 'inference' | 'batch' | 'chart' | 'intelligence'>('training');
   const [learnedRules, setLearnedRules] = useState<ChunkAnnotation[]>([]);
   
   const {
@@ -197,6 +199,10 @@ const Index = () => {
   const activeSelectedChunkId = mode === 'chart' ? chartSelectedChunkId : selectedChunkId;
   const activeAnnotation = mode === 'chart' ? chartCurrentAnnotation : currentAnnotation;
   const setActiveSelectedChunkId = mode === 'chart' ? setChartSelectedChunkId : setSelectedChunkId;
+  const noteSummary = activeDocument
+    ? `Note type: ${activeDocument.noteType ?? 'General'} · ${activeDocument.chunks.length} segments`
+    : undefined;
+  const noteTitle = activeDocument?.noteType ?? 'Clinical Note';
 
   if (authLoading) {
     return (
@@ -217,6 +223,22 @@ const Index = () => {
         />
         <main className="flex-1 overflow-hidden">
           <InferenceMode learnedAnnotations={learnedRules} />
+        </main>
+      </div>
+    );
+  }
+
+  if (mode === 'intelligence') {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <Header 
+          mode={mode} 
+          onModeChange={setMode} 
+          user={user}
+          onSignOut={signOut}
+        />
+        <main className="flex-1 overflow-hidden">
+          <IntelligenceHub />
         </main>
       </div>
     );
@@ -570,6 +592,7 @@ const Index = () => {
             </ResizablePanel>
           </ResizablePanelGroup>
         )}
+        {activeDocument && <AIAssistantWidget noteSummary={noteSummary} noteTitle={noteTitle} />}
       </main>
     </div>
   );

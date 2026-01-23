@@ -18,8 +18,8 @@ import {
 import { User } from '@supabase/supabase-js';
 
 interface HeaderProps {
-  mode: 'training' | 'inference' | 'batch' | 'chart';
-  onModeChange: (mode: 'training' | 'inference' | 'batch' | 'chart') => void;
+  mode: 'training' | 'inference' | 'batch' | 'chart' | 'intelligence';
+  onModeChange: (mode: 'training' | 'inference' | 'batch' | 'chart' | 'intelligence') => void;
   user?: User | null;
   onSignOut?: () => void;
 }
