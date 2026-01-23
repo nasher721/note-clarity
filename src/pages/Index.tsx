@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/clinical/Header';
 import { InferenceMode } from '@/components/clinical/InferenceMode';
 import { IntelligenceHub } from '@/components/intelligence/IntelligenceHub';
-import { useDocumentStore } from '@/hooks/useDocumentStore';
+import { useDocuments, useDocumentCreate, useAnnotations, useLearnedRules, useCleanedText } from '@/hooks/documents';
 import { useBatchProcessor } from '@/hooks/useBatchProcessor';
 import { useChartProcessor } from '@/hooks/useChartProcessor';
 import { useTextHighlights } from '@/hooks/useTextHighlights';
@@ -18,11 +18,36 @@ const Index = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading, isAuthenticated, signOut } = useAuth();
   const [mode, setMode] = useState<'training' | 'inference' | 'batch' | 'chart' | 'intelligence'>('training');
-  const [learnedRules, setLearnedRules] = useState<ChunkAnnotation[]>([]);
+  const [learnedRulesState, setLearnedRulesState] = useState<ChunkAnnotation[]>([]);
+  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   
-  const documentStore = useDocumentStore(user?.id);
+  // Use focused document hooks
+  const {
+    documents,
+    currentDocument,
+    loading: docLoading,
+    selectDocument,
+    updateDocumentInList,
+    addDocumentToList,
+  } = useDocuments(user?.id);
+  
+  const { createDocument } = useDocumentCreate(user?.id, addDocumentToList);
+  const { annotateChunk, bulkAnnotateChunks, removeAnnotation, getAnnotation } = useAnnotations(
+    user?.id,
+    currentDocument,
+    updateDocumentInList
+  );
+  const { getLearnedRules } = useLearnedRules(user?.id);
+  const { getCleanedText } = useCleanedText(currentDocument);
+
   const batchProcessor = useBatchProcessor(user?.id);
   const chartProcessor = useChartProcessor(user?.id);
+
+  // Wrap selectDocument to also reset selected chunk
+  const handleSelectDocument = useCallback((docId: string) => {
+    selectDocument(docId);
+    setSelectedChunkId(null);
+  }, [selectDocument]);
 
   // Selected chunk for chart mode
   const [chartSelectedChunkId, setChartSelectedChunkId] = useState<string | null>(null);
@@ -35,7 +60,7 @@ const Index = () => {
     ? batchProcessor.currentBatchDocument.document.id
     : mode === 'chart' && chartProcessor.currentDocument
     ? chartProcessor.currentDocument.id
-    : documentStore.currentDocument?.id;
+    : currentDocument?.id;
 
   const textHighlights = useTextHighlights(user?.id, activeDocumentId);
 
@@ -49,9 +74,9 @@ const Index = () => {
   // Load learned rules when switching to inference mode
   useEffect(() => {
     if (mode === 'inference' && user?.id) {
-      documentStore.getLearnedRules().then(setLearnedRules);
+      getLearnedRules().then(setLearnedRulesState);
     }
-  }, [mode, user?.id, documentStore.getLearnedRules]);
+  }, [mode, user?.id, getLearnedRules]);
 
   // Keyboard navigation for batch mode
   useNavigationShortcuts(
@@ -100,14 +125,14 @@ const Index = () => {
     ? batchProcessor.currentBatchDocument.document 
     : mode === 'chart' && chartProcessor.currentDocument
     ? chartProcessor.currentDocument
-    : documentStore.currentDocument;
+    : currentDocument;
 
   // Get selected chunk ID and annotation based on mode
-  const activeSelectedChunkId = mode === 'chart' ? chartSelectedChunkId : documentStore.selectedChunkId;
-  const setActiveSelectedChunkId = mode === 'chart' ? setChartSelectedChunkId : documentStore.setSelectedChunkId;
+  const activeSelectedChunkId = mode === 'chart' ? chartSelectedChunkId : selectedChunkId;
+  const setActiveSelectedChunkId = mode === 'chart' ? setChartSelectedChunkId : setSelectedChunkId;
   
   const activeAnnotation = activeSelectedChunkId 
-    ? (mode === 'chart' ? chartProcessor.getAnnotation(activeSelectedChunkId) : documentStore.getAnnotation(activeSelectedChunkId))
+    ? (mode === 'chart' ? chartProcessor.getAnnotation(activeSelectedChunkId) : getAnnotation(activeSelectedChunkId))
     : undefined;
 
   // Loading state
@@ -125,7 +150,7 @@ const Index = () => {
       <div className="min-h-screen flex flex-col bg-background">
         <Header mode={mode} onModeChange={setMode} user={user} onSignOut={signOut} />
         <main className="flex-1 overflow-hidden">
-          <InferenceMode learnedAnnotations={learnedRules} />
+          <InferenceMode learnedAnnotations={learnedRulesState} />
         </main>
       </div>
     );
@@ -151,13 +176,13 @@ const Index = () => {
           <Header mode={mode} onModeChange={setMode} user={user} onSignOut={signOut} />
           <main className="flex-1 overflow-hidden">
             <TrainingModePage
-              documents={documentStore.documents}
-              docLoading={documentStore.loading}
+              documents={documents}
+              docLoading={docLoading}
               batchQueueLength={batchProcessor.batchQueue.length}
               chartNotesLength={chartProcessor.noteItems.length}
               chartIsLoaded={chartProcessor.isLoaded}
-              onDocumentSubmit={documentStore.createDocument}
-              onSelectDocument={documentStore.selectDocument}
+              onDocumentSubmit={createDocument}
+              onSelectDocument={handleSelectDocument}
               onSwitchToBatch={() => setMode('batch')}
               onSwitchToChart={() => setMode('chart')}
             />
@@ -234,17 +259,17 @@ const Index = () => {
             if (mode === 'chart') {
               chartProcessor.annotateChunk(chunkId, label, options);
             } else {
-              documentStore.annotateChunk(chunkId, label, options);
+              annotateChunk(chunkId, label, options);
             }
           }}
           onRemoveAnnotation={(chunkId) => {
             if (mode === 'chart') {
               chartProcessor.removeAnnotation(chunkId);
             } else {
-              documentStore.removeAnnotation(chunkId);
+              removeAnnotation(chunkId);
             }
           }}
-          onBulkAnnotate={mode === 'chart' ? chartProcessor.bulkAnnotateChunks : documentStore.bulkAnnotateChunks}
+          onBulkAnnotate={mode === 'chart' ? chartProcessor.bulkAnnotateChunks : bulkAnnotateChunks}
           onAddHighlight={textHighlights.addHighlight}
           onRemoveHighlight={textHighlights.removeHighlight}
           onUpdateHighlight={textHighlights.updateHighlight}
@@ -270,7 +295,7 @@ const Index = () => {
             } else if (mode === 'batch') {
               setMode('training');
             } else {
-              documentStore.selectDocument('');
+              handleSelectDocument('');
             }
           }}
         />
