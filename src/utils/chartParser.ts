@@ -67,9 +67,7 @@ const NOTE_BOUNDARY_REGEX = new RegExp(
   'gim'
 );
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 11);
-}
+import { generateId } from '@/utils/id';
 
 function extractNoteType(text: string): string {
   const firstLine = text.split('\n')[0].trim().substring(0, 100);

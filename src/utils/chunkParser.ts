@@ -1,51 +1,6 @@
 import { DocumentChunk, ChunkType } from '@/types/clinical';
-
-const SECTION_HEADERS = [
-  'CHIEF COMPLAINT',
-  'HISTORY OF PRESENT ILLNESS',
-  'HPI',
-  'PAST MEDICAL HISTORY',
-  'PMH',
-  'MEDICATIONS',
-  'ALLERGIES',
-  'SOCIAL HISTORY',
-  'FAMILY HISTORY',
-  'REVIEW OF SYSTEMS',
-  'ROS',
-  'PHYSICAL EXAM',
-  'VITAL SIGNS',
-  'ASSESSMENT',
-  'PLAN',
-  'ASSESSMENT AND PLAN',
-  'A/P',
-  'LABS',
-  'IMAGING',
-  'PROCEDURES',
-  'DISPOSITION',
-  'ATTENDING ATTESTATION',
-];
-
-const CRITICAL_PATTERNS = {
-  allergies: /\b(allerg|NKDA|no known drug allergies)\b/i,
-  anticoagulation: /\b(warfarin|coumadin|heparin|enoxaparin|lovenox|rivaroxaban|xarelto|apixaban|eliquis|dabigatran|pradaxa|INR|anticoagul)/i,
-  code_status: /\b(DNR|DNI|full code|code status|goals of care|comfort care|hospice|CMO|comfort measures)\b/i,
-  infusions: /\b(drip|infusion|gtt|mcg\/kg\/min|units\/hr|mg\/hr|vasopressor|norepinephrine|levophed|epinephrine|dopamine|dobutamine|phenylephrine|vasopressin)\b/i,
-  lines_drains_airway: /\b(central line|PICC|arterial line|a-line|foley|chest tube|JP drain|NG tube|ETT|trach|ventilat|intubat|extubat)\b/i,
-};
-
-const BOILERPLATE_PATTERNS = [
-  /I have personally seen and examined the patient/i,
-  /I was present for the key portions/i,
-  /I agree with the resident's assessment/i,
-  /The above note was reviewed and edited/i,
-  /electronically signed by/i,
-  /This note was generated/i,
-  /attestation/i,
-];
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 11);
-}
+import { generateId } from '@/utils/id';
+import { SECTION_HEADERS, CRITICAL_PATTERNS, BOILERPLATE_PATTERNS } from '@/constants/clinical';
 
 function detectChunkType(text: string): ChunkType {
   const trimmed = text.trim().toUpperCase();

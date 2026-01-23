@@ -108,3 +108,24 @@ export const SCOPE_LABELS: Record<LabelScope, string> = {
   service: 'This service',
   global: 'Global rule',
 };
+
+// Re-export batch and chart types for convenience
+export interface BatchQueueItem {
+  id: string;
+  text: string;
+  noteType?: string;
+  service?: string;
+  patientId?: string;
+  status: 'pending' | 'processing' | 'completed';
+  document?: ClinicalDocument;
+  annotationCount: number;
+}
+
+export interface NoteItem {
+  id: string;
+  noteType: string;
+  dateTime?: string;
+  status: 'pending' | 'completed';
+  annotationCount: number;
+  chunkCount: number;
+}
