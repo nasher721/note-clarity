@@ -340,6 +340,41 @@ const Index = () => {
     }
   }, [mode, chartProcessor, bulkAnnotateChunks, annotationHistory]);
 
+  // Handle clear all annotations
+  const handleClearAllAnnotations = useCallback(() => {
+    if (!activeDocument) return;
+    
+    // Save current annotations to history for undo
+    const annotatedChunkIds = activeDocument.annotations.map(a => a.chunkId);
+    if (annotatedChunkIds.length === 0) return;
+
+    // Push a special action for clearing all
+    annotationHistory.pushAction({
+      type: 'annotation',
+      data: {
+        type: 'bulk_add',
+        chunkIds: annotatedChunkIds,
+        previousLabel: 'CLEAR_ALL',
+        newLabel: undefined,
+      },
+    });
+
+    // Remove all annotations
+    for (const chunkId of annotatedChunkIds) {
+      if (mode === 'chart') {
+        chartProcessor.removeAnnotation(chunkId);
+      } else {
+        removeAnnotation(chunkId);
+      }
+    }
+
+    toast({
+      title: 'Cleared all labels',
+      description: `Removed ${annotatedChunkIds.length} labels`,
+      duration: 2000,
+    });
+  }, [activeDocument, mode, chartProcessor, removeAnnotation, annotationHistory]);
+
   // Keyboard shortcuts for undo/redo
   useKeyboardShortcuts([
     { 
@@ -503,6 +538,7 @@ const Index = () => {
           onAnnotationViewChange={setAnnotationView}
           onAnnotate={handleAnnotate}
           onRemoveAnnotation={handleRemoveAnnotation}
+          onClearAllAnnotations={handleClearAllAnnotations}
           onBulkAnnotate={handleBulkAnnotate}
           onAddHighlight={textHighlights.addHighlight}
           onRemoveHighlight={textHighlights.removeHighlight}
