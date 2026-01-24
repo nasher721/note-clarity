@@ -45,7 +45,7 @@ export function useAnnotations(
           label: label as DbPrimaryLabel,
           remove_reason: options.removeReason,
           condense_strategy: options.condenseStrategy,
-          scope: (options.scope || 'this_document') as DbLabelScope,
+          scope: (options.scope || 'global') as DbLabelScope,
           override_justification: options.overrideJustification,
         }, {
           onConflict: 'chunk_id,user_id',
@@ -60,7 +60,7 @@ export function useAnnotations(
         label,
         removeReason: options.removeReason,
         condenseStrategy: options.condenseStrategy,
-        scope: options.scope || 'this_document',
+        scope: options.scope || 'global',
         timestamp: new Date(),
         userId,
         overrideJustification: options.overrideJustification,
@@ -121,7 +121,7 @@ export function useAnnotations(
         label: label as DbPrimaryLabel,
         remove_reason: options.removeReason,
         condense_strategy: options.condenseStrategy,
-        scope: (options.scope || 'this_document') as DbLabelScope,
+        scope: (options.scope || 'global') as DbLabelScope,
       }));
 
       const { error } = await supabase
@@ -142,7 +142,7 @@ export function useAnnotations(
           label,
           removeReason: options.removeReason,
           condenseStrategy: options.condenseStrategy,
-          scope: options.scope || 'this_document',
+          scope: options.scope || 'global',
           timestamp: new Date(),
           userId,
         };
