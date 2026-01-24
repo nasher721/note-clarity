@@ -91,7 +91,7 @@ export function TextAnnotator({
 
   // Click-away behavior to close popup
   useEffect(() => {
-    if (!selectedHighlight || !popupPosition) return;
+    if (!popupPosition) return;
 
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
@@ -102,16 +102,32 @@ export function TextAnnotator({
         !textRef.current.contains(target)
       ) {
         setSelectedHighlight(null);
+        setPendingSelection(null);
         setPopupPosition(null);
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedHighlight, popupPosition]);
+  }, [popupPosition]);
 
-  const handleTextSelection = useCallback(() => {
-    if (activeTool === 'select' || activeTool === 'erase') return;
+  const handleApplyPendingLabel = useCallback((label: PrimaryLabel) => {
+    if (!pendingSelection) return;
+    
+    onAddHighlight({
+      startIndex: pendingSelection.start,
+      endIndex: pendingSelection.end,
+      text: pendingSelection.text,
+      label,
+      scope: pendingScope,
+    });
+    
+    setPendingSelection(null);
+    setPopupPosition(null);
+  }, [pendingSelection, pendingScope, onAddHighlight]);
+
+  const handleTextSelection = useCallback((e: React.MouseEvent) => {
+    if (activeTool === 'erase') return;
 
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !textRef.current) return;
@@ -150,22 +166,22 @@ export function TextAnnotator({
       const selectedText = text.substring(startIndex, endIndex);
       
       if (selectedText.trim().length > 0) {
-        // For labeling tools, immediately add the highlight
-        if (activeTool === 'keep' || activeTool === 'condense' || activeTool === 'remove') {
-          const label = activeTool.toUpperCase() as PrimaryLabel;
-          onAddHighlight({
-            startIndex,
-            endIndex,
-            text: selectedText,
-            label,
-            scope: 'this_document',
-          });
+        // Show popup for label selection instead of immediate apply
+        setPendingSelection({ start: startIndex, end: endIndex, text: selectedText });
+        setSelectedHighlight(null); // Clear any existing highlight selection
+        
+        // Calculate popup position
+        if (containerRef.current) {
+          const containerRect = containerRef.current.getBoundingClientRect();
+          const x = e.clientX - containerRect.left;
+          const y = e.clientY - containerRect.top;
+          setPopupPosition({ x, y });
         }
       }
     }
 
     selection.removeAllRanges();
-  }, [activeTool, text, onAddHighlight]);
+  }, [activeTool, text]);
 
   const handleSegmentClick = useCallback((segment: RenderedSegment, e: React.MouseEvent) => {
     if (activeTool === 'erase' && segment.highlights.length > 0) {
@@ -297,8 +313,91 @@ export function TextAnnotator({
         </div>
       </ScrollArea>
 
-      {/* Floating labeling popup */}
-      {selectedHighlight && popupPosition && (
+      {/* Floating popup for NEW text selection */}
+      {pendingSelection && popupPosition && !selectedHighlight && (
+        <div
+          ref={popupRef}
+          className="absolute z-50 w-72 bg-card border rounded-lg shadow-lg animate-scale-in"
+          style={{
+            left: Math.min(popupPosition.x, (containerRef.current?.clientWidth || 300) - 288),
+            top: Math.min(popupPosition.y + 8, (containerRef.current?.clientHeight || 400) - 200),
+          }}
+        >
+          <div className="p-3 space-y-3">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Label Selection</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => {
+                  setPendingSelection(null);
+                  setPopupPosition(null);
+                }}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+
+            {/* Text preview */}
+            <div className="p-2 bg-muted rounded text-xs font-mono max-h-16 overflow-y-auto">
+              {pendingSelection.text.length > 100 
+                ? pendingSelection.text.substring(0, 100) + '...' 
+                : pendingSelection.text}
+            </div>
+
+            {/* Label buttons */}
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 h-8 hover:bg-label-keep hover:text-white"
+                onClick={() => handleApplyPendingLabel('KEEP')}
+              >
+                <Check className="h-3 w-3 mr-1" />
+                Keep
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 h-8 hover:bg-label-condense hover:text-black"
+                onClick={() => handleApplyPendingLabel('CONDENSE')}
+              >
+                <Scissors className="h-3 w-3 mr-1" />
+                Condense
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 h-8 hover:bg-label-remove hover:text-white"
+                onClick={() => handleApplyPendingLabel('REMOVE')}
+              >
+                <Trash2 className="h-3 w-3 mr-1" />
+                Remove
+              </Button>
+            </div>
+
+            {/* Scope selector */}
+            <Select
+              value={pendingScope}
+              onValueChange={(value) => setPendingScope(value as LabelScope)}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(SCOPE_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Floating popup for EXISTING highlight */}
+      {selectedHighlight && popupPosition && !pendingSelection && (
         <div
           ref={popupRef}
           className="absolute z-50 w-72 bg-card border rounded-lg shadow-lg animate-scale-in"
