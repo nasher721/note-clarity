@@ -319,6 +319,10 @@ export function AnnotationWorkspace({
                       annotations={activeDocument.annotations}
                       selectedChunkId={activeSelectedChunkId}
                       onChunkSelect={onChunkSelect}
+                      onQuickLabel={(chunkId, label) => {
+                        onAnnotate(chunkId, label, {});
+                      }}
+                      onRemoveLabel={onRemoveAnnotation}
                     />
                   )}
                 </div>
