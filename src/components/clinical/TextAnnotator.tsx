@@ -5,8 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Check, Scissors, Trash2, X, Highlighter, MousePointer, Eraser, Copy } from 'lucide-react';
+import { Check, Scissors, Trash2, X, Highlighter, MousePointer, Eraser, Copy, Settings2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+
+type MatchMode = 'exact' | 'regex' | 'fuzzy';
 import { cn } from '@/lib/utils';
 
 interface TextAnnotatorProps {
@@ -87,6 +92,10 @@ export function TextAnnotator({
   const [pendingReason, setPendingReason] = useState<RemoveReason | ''>('');
   const [pendingStrategy, setPendingStrategy] = useState<CondenseStrategy | ''>('');
   const [pendingScope, setPendingScope] = useState<LabelScope>('global');
+  
+  // Match mode settings
+  const [matchMode, setMatchMode] = useState<MatchMode>('exact');
+  const [fuzzyThreshold, setFuzzyThreshold] = useState(0.8); // 80% similarity
 
   const segments = useMemo(() => buildSegments(text, highlights), [text, highlights]);
 
@@ -127,28 +136,106 @@ export function TextAnnotator({
     setPopupPosition(null);
   }, [pendingSelection, pendingScope, onAddHighlight]);
 
+  // Levenshtein distance for fuzzy matching
+  const levenshteinDistance = useCallback((a: string, b: string): number => {
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    return matrix[b.length][a.length];
+  }, []);
+
+  // Calculate similarity ratio (0-1)
+  const getSimilarity = useCallback((a: string, b: string): number => {
+    const maxLen = Math.max(a.length, b.length);
+    if (maxLen === 0) return 1;
+    return 1 - levenshteinDistance(a, b) / maxLen;
+  }, [levenshteinDistance]);
+
   // Find all occurrences of a text pattern in the document
-  const findSimilarPatterns = useCallback((searchText: string): Array<{ start: number; end: number }> => {
-    const matches: Array<{ start: number; end: number }> = [];
+  const findSimilarPatterns = useCallback((searchText: string): Array<{ start: number; end: number; similarity?: number }> => {
+    const matches: Array<{ start: number; end: number; similarity?: number }> = [];
     const normalizedSearch = searchText.trim().toLowerCase();
     if (normalizedSearch.length < 3) return matches; // Minimum 3 chars to avoid noise
     
-    let searchIndex = 0;
     const lowerText = text.toLowerCase();
-    
-    while (searchIndex < text.length) {
-      const foundIndex = lowerText.indexOf(normalizedSearch, searchIndex);
-      if (foundIndex === -1) break;
+
+    if (matchMode === 'exact') {
+      // Exact case-insensitive matching
+      let searchIndex = 0;
+      while (searchIndex < text.length) {
+        const foundIndex = lowerText.indexOf(normalizedSearch, searchIndex);
+        if (foundIndex === -1) break;
+        matches.push({
+          start: foundIndex,
+          end: foundIndex + searchText.trim().length,
+        });
+        searchIndex = foundIndex + 1;
+      }
+    } else if (matchMode === 'regex') {
+      // Regex matching - escape special chars and convert to pattern
+      try {
+        // Create a flexible regex from the search text
+        const escaped = normalizedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(escaped, 'gi');
+        let match;
+        while ((match = pattern.exec(text)) !== null) {
+          matches.push({
+            start: match.index,
+            end: match.index + match[0].length,
+          });
+        }
+      } catch {
+        // Invalid regex, fall back to no matches
+      }
+    } else if (matchMode === 'fuzzy') {
+      // Fuzzy matching - slide window across text
+      const searchLen = normalizedSearch.length;
+      const windowSizes = [searchLen, Math.floor(searchLen * 0.9), Math.ceil(searchLen * 1.1)];
       
-      matches.push({
-        start: foundIndex,
-        end: foundIndex + searchText.trim().length,
-      });
-      searchIndex = foundIndex + 1;
+      for (const windowSize of windowSizes) {
+        for (let i = 0; i <= text.length - windowSize; i++) {
+          const window = lowerText.substring(i, i + windowSize);
+          const similarity = getSimilarity(normalizedSearch, window);
+          
+          if (similarity >= fuzzyThreshold) {
+            // Check if this overlaps with an existing match
+            const overlaps = matches.some(m => 
+              (i >= m.start && i < m.end) || (i + windowSize > m.start && i + windowSize <= m.end)
+            );
+            if (!overlaps) {
+              matches.push({
+                start: i,
+                end: i + windowSize,
+                similarity,
+              });
+            }
+          }
+        }
+      }
+      
+      // Sort by start position
+      matches.sort((a, b) => a.start - b.start);
     }
     
     return matches;
-  }, [text]);
+  }, [text, matchMode, fuzzyThreshold, getSimilarity]);
 
   // Count similar patterns (excluding already highlighted ones)
   const getSimilarCount = useCallback((searchText: string): number => {
@@ -471,12 +558,71 @@ export function TextAnnotator({
               </SelectContent>
             </Select>
 
-            {/* Apply to all similar buttons */}
-            {getSimilarCount(pendingSelection.text) > 0 && (
-              <div className="border-t pt-3 space-y-2">
+            {/* Apply to all similar section */}
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Found {getSimilarCount(pendingSelection.text)} more similar patterns
+                  {getSimilarCount(pendingSelection.text) > 0 
+                    ? `Found ${getSimilarCount(pendingSelection.text)} more similar patterns`
+                    : 'No similar patterns found'}
                 </p>
+                
+                {/* Match mode settings */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                      <Settings2 className="h-3 w-3" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-3" align="end">
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Match Mode</Label>
+                        <Select
+                          value={matchMode}
+                          onValueChange={(value) => setMatchMode(value as MatchMode)}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="exact">Exact Match</SelectItem>
+                            <SelectItem value="regex">Regex Pattern</SelectItem>
+                            <SelectItem value="fuzzy">Fuzzy Match</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {matchMode === 'fuzzy' && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">
+                            Similarity: {Math.round(fuzzyThreshold * 100)}%
+                          </Label>
+                          <Slider
+                            value={[fuzzyThreshold]}
+                            onValueChange={([value]) => setFuzzyThreshold(value)}
+                            min={0.5}
+                            max={1}
+                            step={0.05}
+                            className="w-full"
+                          />
+                          <p className="text-[10px] text-muted-foreground">
+                            Lower = more matches, less precise
+                          </p>
+                        </div>
+                      )}
+                      
+                      {matchMode === 'regex' && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Special characters are escaped. Use for pattern matching.
+                        </p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              
+              {getSimilarCount(pendingSelection.text) > 0 && (
                 <div className="flex gap-1">
                   <Button
                     variant="outline"
@@ -506,8 +652,8 @@ export function TextAnnotator({
                     All Remove
                   </Button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -619,22 +765,77 @@ export function TextAnnotator({
               </SelectContent>
             </Select>
 
-            {/* Apply to all similar button */}
-            {getSimilarCount(selectedHighlight.text) > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full h-8 text-xs"
-                onClick={() => handleApplyToAllSimilar(
-                  selectedHighlight.text, 
-                  selectedHighlight.label, 
-                  selectedHighlight.scope
-                )}
-              >
-                <Copy className="h-3 w-3 mr-1" />
-                Apply {selectedHighlight.label} to {getSimilarCount(selectedHighlight.text)} similar
-              </Button>
-            )}
+            {/* Apply to all similar section */}
+            <div className="border-t pt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">
+                  {getSimilarCount(selectedHighlight.text) > 0 
+                    ? `${getSimilarCount(selectedHighlight.text)} similar patterns`
+                    : 'No similar patterns'}
+                </p>
+                
+                {/* Match mode settings */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                      <Settings2 className="h-3 w-3" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-3" align="end">
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Match Mode</Label>
+                        <Select
+                          value={matchMode}
+                          onValueChange={(value) => setMatchMode(value as MatchMode)}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="exact">Exact Match</SelectItem>
+                            <SelectItem value="regex">Regex Pattern</SelectItem>
+                            <SelectItem value="fuzzy">Fuzzy Match</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {matchMode === 'fuzzy' && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium">
+                            Similarity: {Math.round(fuzzyThreshold * 100)}%
+                          </Label>
+                          <Slider
+                            value={[fuzzyThreshold]}
+                            onValueChange={([value]) => setFuzzyThreshold(value)}
+                            min={0.5}
+                            max={1}
+                            step={0.05}
+                            className="w-full"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              
+              {getSimilarCount(selectedHighlight.text) > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-7 text-xs"
+                  onClick={() => handleApplyToAllSimilar(
+                    selectedHighlight.text, 
+                    selectedHighlight.label, 
+                    selectedHighlight.scope
+                  )}
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Apply {selectedHighlight.label} to all similar
+                </Button>
+              )}
+            </div>
 
             {/* Delete button */}
             <Button
