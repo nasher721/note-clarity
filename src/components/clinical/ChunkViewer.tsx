@@ -1,6 +1,8 @@
 import { DocumentChunk, ChunkAnnotation, PrimaryLabel } from '@/types/clinical';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Check, Scissors, Trash2, Sparkles, Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { AlertTriangle, Check, Scissors, Trash2, Sparkles, Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ChunkViewerProps {
@@ -8,6 +10,8 @@ interface ChunkViewerProps {
   annotations: ChunkAnnotation[];
   selectedChunkId: string | null;
   onChunkSelect: (chunkId: string) => void;
+  onQuickLabel?: (chunkId: string, label: PrimaryLabel) => void;
+  onRemoveLabel?: (chunkId: string) => void;
 }
 
 const CHUNK_TYPE_LABELS: Record<string, string> = {
@@ -44,8 +48,25 @@ function getLabelClass(label: PrimaryLabel) {
   }
 }
 
-export function ChunkViewer({ chunks, annotations, selectedChunkId, onChunkSelect }: ChunkViewerProps) {
+export function ChunkViewer({ 
+  chunks, 
+  annotations, 
+  selectedChunkId, 
+  onChunkSelect,
+  onQuickLabel,
+  onRemoveLabel 
+}: ChunkViewerProps) {
   const getAnnotation = (chunkId: string) => annotations.find(a => a.chunkId === chunkId);
+
+  const handleQuickLabel = (e: React.MouseEvent, chunkId: string, label: PrimaryLabel) => {
+    e.stopPropagation();
+    onQuickLabel?.(chunkId, label);
+  };
+
+  const handleRemoveLabel = (e: React.MouseEvent, chunkId: string) => {
+    e.stopPropagation();
+    onRemoveLabel?.(chunkId);
+  };
 
   return (
     <div className="space-y-2">
@@ -65,12 +86,86 @@ export function ChunkViewer({ chunks, annotations, selectedChunkId, onChunkSelec
               chunk.isCritical && !annotation?.overrideJustification && 'chunk-critical'
             )}
           >
-            {/* Click to edit indicator on hover for labeled chunks */}
-            {annotation && !isSelected && (
-              <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
-                <div className="bg-background/95 px-3 py-1.5 rounded-full shadow-sm border text-xs font-medium text-primary flex items-center gap-1.5">
+            {/* Quick action buttons on hover for labeled chunks */}
+            {annotation && onQuickLabel && (
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="flex items-center gap-1 bg-background/95 rounded-lg shadow-md border p-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={annotation.label === 'KEEP' ? 'default' : 'ghost'}
+                        className={cn(
+                          "h-7 w-7",
+                          annotation.label === 'KEEP' && "bg-label-keep hover:bg-label-keep/90"
+                        )}
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'KEEP')}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Keep</TooltipContent>
+                  </Tooltip>
+                  
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={annotation.label === 'CONDENSE' ? 'default' : 'ghost'}
+                        className={cn(
+                          "h-7 w-7",
+                          annotation.label === 'CONDENSE' && "bg-label-condense hover:bg-label-condense/90 text-black"
+                        )}
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'CONDENSE')}
+                      >
+                        <Scissors className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Condense</TooltipContent>
+                  </Tooltip>
+                  
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={annotation.label === 'REMOVE' ? 'default' : 'ghost'}
+                        className={cn(
+                          "h-7 w-7",
+                          annotation.label === 'REMOVE' && "bg-label-remove hover:bg-label-remove/90"
+                        )}
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'REMOVE')}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Remove</TooltipContent>
+                  </Tooltip>
+                  
+                  <div className="w-px h-5 bg-border mx-0.5" />
+                  
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => handleRemoveLabel(e, chunk.id)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Remove label</TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+            )}
+            
+            {/* Click to edit hint for unlabeled chunks */}
+            {!annotation && !isSelected && (
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="bg-background/95 px-2 py-1 rounded-md shadow-sm border text-xs text-muted-foreground flex items-center gap-1">
                   <Pencil className="h-3 w-3" />
-                  Click to edit
+                  Click to label
                 </div>
               </div>
             )}
