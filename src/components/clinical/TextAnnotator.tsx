@@ -75,8 +75,11 @@ export function TextAnnotator({
 }: TextAnnotatorProps) {
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [selectedHighlight, setSelectedHighlight] = useState<TextHighlight | null>(null);
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
   const [pendingSelection, setPendingSelection] = useState<{ start: number; end: number; text: string } | null>(null);
   const textRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   // Label options for pending selection
   const [pendingLabel, setPendingLabel] = useState<PrimaryLabel>('KEEP');
@@ -154,12 +157,20 @@ export function TextAnnotator({
     // Always open labeling panel when clicking a highlight (any tool mode)
     if (segment.highlights.length > 0) {
       const topHighlight = segment.highlights[segment.highlights.length - 1];
-      // If clicking the same highlight, keep it selected; otherwise switch to new one
       setSelectedHighlight(topHighlight);
+      
+      // Calculate popup position relative to container
+      if (containerRef.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const x = e.clientX - containerRect.left;
+        const y = e.clientY - containerRect.top;
+        setPopupPosition({ x, y });
+      }
       e.stopPropagation();
     } else {
       // Clicking non-highlighted area clears selection
       setSelectedHighlight(null);
+      setPopupPosition(null);
     }
   }, [activeTool, onRemoveHighlight]);
 
@@ -173,6 +184,7 @@ export function TextAnnotator({
       onErase: () => setActiveTool('erase'),
       onClear: () => {
         setSelectedHighlight(null);
+        setPopupPosition(null);
         setPendingSelection(null);
       },
     },
@@ -188,7 +200,7 @@ export function TextAnnotator({
   ];
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={containerRef} className="relative flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center gap-1 p-2 border-b bg-muted/30">
         <div className="flex items-center gap-1 p-1 bg-background rounded-lg border">
@@ -226,6 +238,13 @@ export function TextAnnotator({
             activeTool === 'erase' && 'cursor-crosshair'
           )}
           onMouseUp={handleTextSelection}
+          onClick={(e) => {
+            // Click on empty area closes popup
+            if (e.target === e.currentTarget) {
+              setSelectedHighlight(null);
+              setPopupPosition(null);
+            }
+          }}
         >
           {segments.map((segment, idx) => {
             const hasHighlights = segment.highlights.length > 0;
@@ -257,11 +276,19 @@ export function TextAnnotator({
         </div>
       </ScrollArea>
 
-      {/* Selected highlight panel */}
-      {selectedHighlight && (
-        <div className="border-t bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+      {/* Floating labeling popup */}
+      {selectedHighlight && popupPosition && (
+        <div
+          ref={popupRef}
+          className="absolute z-50 w-72 bg-card border rounded-lg shadow-lg animate-scale-in"
+          style={{
+            left: Math.min(popupPosition.x, (containerRef.current?.clientWidth || 300) - 288),
+            top: Math.min(popupPosition.y + 8, (containerRef.current?.clientHeight || 400) - 200),
+          }}
+        >
+          <div className="p-3 space-y-3">
+            {/* Header with label badge */}
+            <div className="flex items-center justify-between">
               <Badge className={cn(
                 selectedHighlight.label === 'KEEP' && 'bg-label-keep text-white',
                 selectedHighlight.label === 'CONDENSE' && 'bg-label-condense text-black',
@@ -269,55 +296,76 @@ export function TextAnnotator({
               )}>
                 {selectedHighlight.label}
               </Badge>
-              <span className="text-sm text-muted-foreground">
-                chars {selectedHighlight.startIndex}–{selectedHighlight.endIndex}
-              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => {
+                  setSelectedHighlight(null);
+                  setPopupPosition(null);
+                }}
+              >
+                <X className="h-3 w-3" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setSelectedHighlight(null)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
 
-          <div className="p-2 bg-muted rounded text-sm font-mono max-h-20 overflow-y-auto">
-            {selectedHighlight.text.length > 200 
-              ? selectedHighlight.text.substring(0, 200) + '...' 
-              : selectedHighlight.text}
-          </div>
+            {/* Text preview */}
+            <div className="p-2 bg-muted rounded text-xs font-mono max-h-16 overflow-y-auto">
+              {selectedHighlight.text.length > 100 
+                ? selectedHighlight.text.substring(0, 100) + '...' 
+                : selectedHighlight.text}
+            </div>
 
-          <div className="flex items-center gap-2">
-            <Select
-              value={selectedHighlight.label}
-              onValueChange={(value) => {
-                onUpdateHighlight(selectedHighlight.id, { label: value as PrimaryLabel });
-                setSelectedHighlight({ ...selectedHighlight, label: value as PrimaryLabel });
-              }}
-            >
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="KEEP">
-                  <span className="flex items-center gap-2">
-                    <Check className="h-3 w-3 text-green-600" /> Keep
-                  </span>
-                </SelectItem>
-                <SelectItem value="CONDENSE">
-                  <span className="flex items-center gap-2">
-                    <Scissors className="h-3 w-3 text-yellow-600" /> Condense
-                  </span>
-                </SelectItem>
-                <SelectItem value="REMOVE">
-                  <span className="flex items-center gap-2">
-                    <Trash2 className="h-3 w-3 text-red-600" /> Remove
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Quick label buttons */}
+            <div className="flex gap-1">
+              <Button
+                variant={selectedHighlight.label === 'KEEP' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  'flex-1 h-8',
+                  selectedHighlight.label === 'KEEP' && 'bg-label-keep hover:bg-label-keep/90'
+                )}
+                onClick={() => {
+                  onUpdateHighlight(selectedHighlight.id, { label: 'KEEP' });
+                  setSelectedHighlight({ ...selectedHighlight, label: 'KEEP' });
+                }}
+              >
+                <Check className="h-3 w-3 mr-1" />
+                Keep
+              </Button>
+              <Button
+                variant={selectedHighlight.label === 'CONDENSE' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  'flex-1 h-8',
+                  selectedHighlight.label === 'CONDENSE' && 'bg-label-condense hover:bg-label-condense/90 text-black'
+                )}
+                onClick={() => {
+                  onUpdateHighlight(selectedHighlight.id, { label: 'CONDENSE' });
+                  setSelectedHighlight({ ...selectedHighlight, label: 'CONDENSE' });
+                }}
+              >
+                <Scissors className="h-3 w-3 mr-1" />
+                Condense
+              </Button>
+              <Button
+                variant={selectedHighlight.label === 'REMOVE' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  'flex-1 h-8',
+                  selectedHighlight.label === 'REMOVE' && 'bg-label-remove hover:bg-label-remove/90'
+                )}
+                onClick={() => {
+                  onUpdateHighlight(selectedHighlight.id, { label: 'REMOVE' });
+                  setSelectedHighlight({ ...selectedHighlight, label: 'REMOVE' });
+                }}
+              >
+                <Trash2 className="h-3 w-3 mr-1" />
+                Remove
+              </Button>
+            </div>
 
+            {/* Scope selector */}
             <Select
               value={selectedHighlight.scope}
               onValueChange={(value) => {
@@ -325,7 +373,7 @@ export function TextAnnotator({
                 setSelectedHighlight({ ...selectedHighlight, scope: value as LabelScope });
               }}
             >
-              <SelectTrigger className="flex-1">
+              <SelectTrigger className="h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -335,15 +383,19 @@ export function TextAnnotator({
               </SelectContent>
             </Select>
 
+            {/* Delete button */}
             <Button
-              variant="destructive"
+              variant="ghost"
               size="sm"
+              className="w-full h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
               onClick={() => {
                 onRemoveHighlight(selectedHighlight.id);
                 setSelectedHighlight(null);
+                setPopupPosition(null);
               }}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-3 w-3 mr-1" />
+              Delete annotation
             </Button>
           </div>
         </div>
