@@ -66,6 +66,7 @@ interface AnnotationWorkspaceProps {
     }
   ) => void;
   onRemoveAnnotation: (chunkId: string) => void;
+  onClearAllAnnotations: () => void;
   onBulkAnnotate: (
     chunkIds: string[],
     label: PrimaryLabel,
@@ -121,6 +122,7 @@ export function AnnotationWorkspace({
   onAnnotationViewChange,
   onAnnotate,
   onRemoveAnnotation,
+  onClearAllAnnotations,
   onBulkAnnotate,
   onAddHighlight,
   onRemoveHighlight,
@@ -327,12 +329,26 @@ export function AnnotationWorkspace({
 
         <ResizableHandle withHandle />
 
-        {/* Labeling panel */}
+        {/* Labeling panel - sticky floating */}
         <ResizablePanel defaultSize={(mode === 'batch' || mode === 'chart') ? 20 : 25} minSize={15}>
-          <div className="h-full flex flex-col">
-            <div className="panel-header">Labeling</div>
-            <ScrollArea className="flex-1">
-              <div className="p-4">
+          <div className="h-full flex flex-col relative">
+            <div className="sticky top-0 z-10 bg-background">
+              <div className="panel-header flex items-center justify-between">
+                <span>Labeling</span>
+                {activeDocument && activeDocument.annotations.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onClearAllAnnotations}
+                    className="text-xs h-6 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    Clear All ({activeDocument.annotations.length})
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <div className="sticky top-0 p-4">
                 <LabelingPanel
                   chunk={activeDocument?.chunks.find(c => c.id === activeSelectedChunkId) || null}
                   currentLabel={activeAnnotation?.label}
@@ -351,7 +367,7 @@ export function AnnotationWorkspace({
                   }}
                 />
               </div>
-            </ScrollArea>
+            </div>
           </div>
         </ResizablePanel>
 
