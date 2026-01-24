@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { TextHighlight, PrimaryLabel, RemoveReason, CondenseStrategy, LabelScope, SCOPE_LABELS } from '@/types/clinical';
 import { useAnnotationToolShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
@@ -88,6 +88,27 @@ export function TextAnnotator({
   const [pendingScope, setPendingScope] = useState<LabelScope>('this_document');
 
   const segments = useMemo(() => buildSegments(text, highlights), [text, highlights]);
+
+  // Click-away behavior to close popup
+  useEffect(() => {
+    if (!selectedHighlight || !popupPosition) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        popupRef.current &&
+        !popupRef.current.contains(target) &&
+        textRef.current &&
+        !textRef.current.contains(target)
+      ) {
+        setSelectedHighlight(null);
+        setPopupPosition(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedHighlight, popupPosition]);
 
   const handleTextSelection = useCallback(() => {
     if (activeTool === 'select' || activeTool === 'erase') return;
