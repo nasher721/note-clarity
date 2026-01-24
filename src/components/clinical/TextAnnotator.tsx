@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Check, Scissors, Trash2, X, Highlighter, MousePointer, Eraser } from 'lucide-react';
+import { Check, Scissors, Trash2, X, Highlighter, MousePointer, Eraser, Copy } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
 interface TextAnnotatorProps {
@@ -125,6 +126,83 @@ export function TextAnnotator({
     setPendingSelection(null);
     setPopupPosition(null);
   }, [pendingSelection, pendingScope, onAddHighlight]);
+
+  // Find all occurrences of a text pattern in the document
+  const findSimilarPatterns = useCallback((searchText: string): Array<{ start: number; end: number }> => {
+    const matches: Array<{ start: number; end: number }> = [];
+    const normalizedSearch = searchText.trim().toLowerCase();
+    if (normalizedSearch.length < 3) return matches; // Minimum 3 chars to avoid noise
+    
+    let searchIndex = 0;
+    const lowerText = text.toLowerCase();
+    
+    while (searchIndex < text.length) {
+      const foundIndex = lowerText.indexOf(normalizedSearch, searchIndex);
+      if (foundIndex === -1) break;
+      
+      matches.push({
+        start: foundIndex,
+        end: foundIndex + searchText.trim().length,
+      });
+      searchIndex = foundIndex + 1;
+    }
+    
+    return matches;
+  }, [text]);
+
+  // Count similar patterns (excluding already highlighted ones)
+  const getSimilarCount = useCallback((searchText: string): number => {
+    const patterns = findSimilarPatterns(searchText);
+    // Filter out patterns that are already highlighted
+    const unhighlightedPatterns = patterns.filter(p => {
+      return !highlights.some(h => 
+        (h.startIndex <= p.start && h.endIndex >= p.end) || // Fully contained
+        (p.start <= h.startIndex && p.end >= h.endIndex) // Contains highlight
+      );
+    });
+    return unhighlightedPatterns.length;
+  }, [findSimilarPatterns, highlights]);
+
+  // Apply label to all similar patterns
+  const handleApplyToAllSimilar = useCallback((searchText: string, label: PrimaryLabel, scope: LabelScope) => {
+    const patterns = findSimilarPatterns(searchText);
+    
+    // Filter out patterns that are already highlighted
+    const newPatterns = patterns.filter(p => {
+      return !highlights.some(h => 
+        (h.startIndex <= p.start && h.endIndex >= p.end) ||
+        (p.start <= h.startIndex && p.end >= h.endIndex)
+      );
+    });
+
+    if (newPatterns.length === 0) {
+      toast({
+        title: 'No additional matches',
+        description: 'All similar patterns are already annotated.',
+      });
+      return;
+    }
+
+    // Add highlights for all new patterns
+    newPatterns.forEach(pattern => {
+      onAddHighlight({
+        startIndex: pattern.start,
+        endIndex: pattern.end,
+        text: text.substring(pattern.start, pattern.end),
+        label,
+        scope,
+      });
+    });
+
+    toast({
+      title: 'Applied to all similar',
+      description: `Added ${label} label to ${newPatterns.length} matching patterns.`,
+    });
+
+    setPendingSelection(null);
+    setSelectedHighlight(null);
+    setPopupPosition(null);
+  }, [findSimilarPatterns, highlights, text, onAddHighlight]);
 
   const handleTextSelection = useCallback((e: React.MouseEvent) => {
     if (activeTool === 'erase') return;
@@ -392,6 +470,44 @@ export function TextAnnotator({
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Apply to all similar buttons */}
+            {getSimilarCount(pendingSelection.text) > 0 && (
+              <div className="border-t pt-3 space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Found {getSimilarCount(pendingSelection.text)} more similar patterns
+                </p>
+                <div className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-7 text-xs hover:bg-label-keep/20"
+                    onClick={() => handleApplyToAllSimilar(pendingSelection.text, 'KEEP', pendingScope)}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    All Keep
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-7 text-xs hover:bg-label-condense/20"
+                    onClick={() => handleApplyToAllSimilar(pendingSelection.text, 'CONDENSE', pendingScope)}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    All Condense
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 h-7 text-xs hover:bg-label-remove/20"
+                    onClick={() => handleApplyToAllSimilar(pendingSelection.text, 'REMOVE', pendingScope)}
+                  >
+                    <Copy className="h-3 w-3 mr-1" />
+                    All Remove
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -502,6 +618,23 @@ export function TextAnnotator({
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Apply to all similar button */}
+            {getSimilarCount(selectedHighlight.text) > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs"
+                onClick={() => handleApplyToAllSimilar(
+                  selectedHighlight.text, 
+                  selectedHighlight.label, 
+                  selectedHighlight.scope
+                )}
+              >
+                <Copy className="h-3 w-3 mr-1" />
+                Apply {selectedHighlight.label} to {getSimilarCount(selectedHighlight.text)} similar
+              </Button>
+            )}
 
             {/* Delete button */}
             <Button
