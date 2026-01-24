@@ -396,6 +396,9 @@ export function AnnotationWorkspace({
                 <DiffPreview
                   chunks={activeDocument.chunks}
                   annotations={activeDocument.annotations}
+                  originalText={activeDocument.originalText}
+                  highlights={highlights}
+                  mode={annotationView}
                 />
               )}
             </div>
