@@ -16,13 +16,17 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { 
   Check, 
   Scissors, 
   Trash2, 
   AlertTriangle, 
   X,
-  Keyboard
+  Keyboard,
+  Pencil,
+  RotateCcw
 } from 'lucide-react';
 
 interface LabelingPanelProps {
@@ -58,6 +62,12 @@ export function LabelingPanel({
   const [scope, setScope] = useState<LabelScope>(currentScope);
   const [overrideJustification, setOverrideJustification] = useState('');
   const [showCriticalWarning, setShowCriticalWarning] = useState(false);
+  
+  const isEditing = !!currentLabel;
+  const hasChanges = label !== currentLabel || 
+    removeReason !== currentReason || 
+    condenseStrategy !== currentStrategy ||
+    scope !== currentScope;
 
   useEffect(() => {
     setLabel(currentLabel || null);
@@ -78,6 +88,13 @@ export function LabelingPanel({
     },
     !!chunk
   );
+
+  const handleResetToOriginal = () => {
+    setLabel(currentLabel || null);
+    setRemoveReason(currentReason || null);
+    setCondenseStrategy(currentStrategy || null);
+    setScope(currentScope);
+  };
 
   if (!chunk) {
     return (
@@ -115,10 +132,35 @@ export function LabelingPanel({
   );
 
   return (
-    <Card className="p-4 space-y-4">
+    <Card className={cn(
+      "p-4 space-y-4 transition-all",
+      isEditing && "ring-2 ring-primary/30 ring-offset-2 ring-offset-background"
+    )}>
+      {/* Edit mode indicator */}
+      {isEditing && (
+        <div className="flex items-center justify-between p-2 -mt-2 -mx-2 mb-2 bg-primary/10 rounded-t-lg border-b border-primary/20">
+          <div className="flex items-center gap-2 text-sm font-medium text-primary">
+            <Pencil className="h-4 w-4" />
+            Editing existing label
+          </div>
+          <Badge 
+            className={cn(
+              "text-xs",
+              currentLabel === 'KEEP' && 'bg-label-keep text-white',
+              currentLabel === 'CONDENSE' && 'bg-label-condense text-black',
+              currentLabel === 'REMOVE' && 'bg-label-remove text-white'
+            )}
+          >
+            Current: {currentLabel}
+          </Badge>
+        </div>
+      )}
+      
       {/* Chunk preview */}
       <div className="p-3 bg-muted rounded-lg">
-        <p className="text-xs text-muted-foreground mb-1">Selected chunk:</p>
+        <p className="text-xs text-muted-foreground mb-1">
+          {isEditing ? 'Editing chunk:' : 'Selected chunk:'}
+        </p>
         <p className="text-sm font-mono line-clamp-3">{chunk.text}</p>
       </div>
 
@@ -139,7 +181,9 @@ export function LabelingPanel({
       {/* Primary label selection */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="font-semibold">Primary Label</Label>
+          <Label className="font-semibold">
+            {isEditing ? 'Change Label' : 'Primary Label'}
+          </Label>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Keyboard className="h-3 w-3" />
             <span className="kbd">1</span>
@@ -151,7 +195,10 @@ export function LabelingPanel({
         <div className="grid grid-cols-3 gap-2">
           <Button
             variant={label === 'KEEP' ? 'default' : 'outline'}
-            className={label === 'KEEP' ? 'bg-label-keep hover:bg-label-keep/90' : ''}
+            className={cn(
+              label === 'KEEP' ? 'bg-label-keep hover:bg-label-keep/90' : '',
+              isEditing && currentLabel === 'KEEP' && label !== 'KEEP' && 'border-label-keep/50'
+            )}
             onClick={() => setLabel('KEEP')}
           >
             <Check className="h-4 w-4 mr-1" />
@@ -159,7 +206,10 @@ export function LabelingPanel({
           </Button>
           <Button
             variant={label === 'CONDENSE' ? 'default' : 'outline'}
-            className={label === 'CONDENSE' ? 'bg-label-condense hover:bg-label-condense/90 text-black' : ''}
+            className={cn(
+              label === 'CONDENSE' ? 'bg-label-condense hover:bg-label-condense/90 text-black' : '',
+              isEditing && currentLabel === 'CONDENSE' && label !== 'CONDENSE' && 'border-label-condense/50'
+            )}
             onClick={() => setLabel('CONDENSE')}
           >
             <Scissors className="h-4 w-4 mr-1" />
@@ -167,7 +217,10 @@ export function LabelingPanel({
           </Button>
           <Button
             variant={label === 'REMOVE' ? 'default' : 'outline'}
-            className={label === 'REMOVE' ? 'bg-label-remove hover:bg-label-remove/90' : ''}
+            className={cn(
+              label === 'REMOVE' ? 'bg-label-remove hover:bg-label-remove/90' : '',
+              isEditing && currentLabel === 'REMOVE' && label !== 'REMOVE' && 'border-label-remove/50'
+            )}
             onClick={() => setLabel('REMOVE')}
           >
             <Trash2 className="h-4 w-4 mr-1" />
@@ -254,28 +307,46 @@ export function LabelingPanel({
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 pt-2">
-        <Button
-          variant="outline"
-          onClick={() => {
-            onClear();
-            setLabel(null);
-            setRemoveReason(null);
-            setCondenseStrategy(null);
-          }}
-          className="flex-1"
-        >
-          <X className="h-4 w-4 mr-1" />
-          Clear
-        </Button>
-        <Button
-          onClick={handleApply}
-          disabled={!isValid}
-          className="flex-1"
-        >
-          <Check className="h-4 w-4 mr-1" />
-          Apply Label
-        </Button>
+      <div className="flex flex-col gap-2 pt-2">
+        {/* Change indicator when editing */}
+        {isEditing && hasChanges && (
+          <div className="flex items-center justify-between p-2 bg-accent/50 rounded-lg text-sm">
+            <span className="text-muted-foreground">Unsaved changes</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleResetToOriginal}
+              className="h-7 text-xs"
+            >
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Reset
+            </Button>
+          </div>
+        )}
+        
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              onClear();
+              setLabel(null);
+              setRemoveReason(null);
+              setCondenseStrategy(null);
+            }}
+            className="flex-1"
+          >
+            <X className="h-4 w-4 mr-1" />
+            {isEditing ? 'Remove Label' : 'Clear'}
+          </Button>
+          <Button
+            onClick={handleApply}
+            disabled={!isValid || (isEditing && !hasChanges)}
+            className="flex-1"
+          >
+            <Check className="h-4 w-4 mr-1" />
+            {isEditing ? 'Update Label' : 'Apply Label'}
+          </Button>
+        </div>
       </div>
     </Card>
   );
