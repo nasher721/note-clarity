@@ -1,6 +1,6 @@
 import { DocumentChunk, ChunkAnnotation, PrimaryLabel } from '@/types/clinical';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Check, Scissors, Trash2, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Scissors, Trash2, Sparkles, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ChunkViewerProps {
@@ -65,6 +65,16 @@ export function ChunkViewer({ chunks, annotations, selectedChunkId, onChunkSelec
               chunk.isCritical && !annotation?.overrideJustification && 'chunk-critical'
             )}
           >
+            {/* Click to edit indicator on hover for labeled chunks */}
+            {annotation && !isSelected && (
+              <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
+                <div className="bg-background/95 px-3 py-1.5 rounded-full shadow-sm border text-xs font-medium text-primary flex items-center gap-1.5">
+                  <Pencil className="h-3 w-3" />
+                  Click to edit
+                </div>
+              </div>
+            )}
+            
             {/* Chunk header */}
             <div className="flex items-center gap-2 mb-2">
               <Badge variant="secondary" className="text-xs font-medium">
@@ -91,7 +101,7 @@ export function ChunkViewer({ chunks, annotations, selectedChunkId, onChunkSelec
               {annotation && (
                 <Badge 
                   className={cn(
-                    'text-xs gap-1 ml-auto',
+                    'text-xs gap-1 ml-auto group-hover:ring-2 group-hover:ring-primary/30 transition-all',
                     annotation.label === 'KEEP' && 'bg-label-keep text-white',
                     annotation.label === 'CONDENSE' && 'bg-label-condense text-black',
                     annotation.label === 'REMOVE' && 'bg-label-remove text-white'
