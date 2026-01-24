@@ -6,6 +6,7 @@ import { BatchQueuePanel } from '@/components/clinical/BatchQueuePanel';
 import { ChartQueuePanel, ChartNoteItem } from '@/components/clinical/ChartQueuePanel';
 import { TextAnnotator } from '@/components/clinical/TextAnnotator';
 import { UndoRedoButtons } from '@/components/clinical/UndoRedoButtons';
+import { AnnotationStatusBar } from '@/components/clinical/AnnotationStatusBar';
 import { AIAssistantWidget } from '@/components/intelligence/AIAssistantWidget';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -150,6 +151,8 @@ export function AnnotationWorkspace({
     ? `Note type: ${activeDocument.noteType ?? 'General'} · ${activeDocument.chunks.length} segments`
     : undefined;
   const noteTitle = activeDocument?.noteType ?? 'Clinical Note';
+  const annotatedCount = activeDocument?.annotations.length ?? 0;
+  const totalChunks = activeDocument?.chunks.length ?? 0;
 
   if (!activeDocument) {
     return null;
@@ -298,6 +301,13 @@ export function AnnotationWorkspace({
                 </button>
               </div>
             </div>
+
+            <AnnotationStatusBar
+              annotationView={annotationView}
+              annotatedCount={annotatedCount}
+              totalChunks={totalChunks}
+              highlightStats={highlightStats}
+            />
             
             {/* Content based on annotation view */}
             {annotationView === 'chunks' ? (
