@@ -85,7 +85,7 @@ export function TextAnnotator({
   const [pendingLabel, setPendingLabel] = useState<PrimaryLabel>('KEEP');
   const [pendingReason, setPendingReason] = useState<RemoveReason | ''>('');
   const [pendingStrategy, setPendingStrategy] = useState<CondenseStrategy | ''>('');
-  const [pendingScope, setPendingScope] = useState<LabelScope>('this_document');
+  const [pendingScope, setPendingScope] = useState<LabelScope>('global');
 
   const segments = useMemo(() => buildSegments(text, highlights), [text, highlights]);
 

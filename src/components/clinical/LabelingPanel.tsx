@@ -52,7 +52,7 @@ export function LabelingPanel({
   currentLabel,
   currentReason,
   currentStrategy,
-  currentScope = 'this_document',
+  currentScope = 'global',
   onAnnotate,
   onClear,
 }: LabelingPanelProps) {
