@@ -8,11 +8,13 @@ import { useBatchProcessor } from '@/hooks/useBatchProcessor';
 import { useChartProcessor } from '@/hooks/useChartProcessor';
 import { useTextHighlights } from '@/hooks/useTextHighlights';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigationShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useNavigationShortcuts, useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useAnnotationHistory, AnnotationActionData } from '@/hooks/useUndoRedo';
 import { Loader2 } from 'lucide-react';
-import { ChunkAnnotation } from '@/types/clinical';
+import { ChunkAnnotation, PrimaryLabel, RemoveReason, CondenseStrategy, LabelScope } from '@/types/clinical';
 import { TrainingModePage, BatchModePage, ChartModePage } from '@/pages/modes';
 import { AnnotationWorkspace } from '@/components/clinical/AnnotationWorkspace';
+import { toast } from '@/hooks/use-toast';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -42,6 +44,9 @@ const Index = () => {
 
   const batchProcessor = useBatchProcessor(user?.id);
   const chartProcessor = useChartProcessor(user?.id);
+  
+  // Undo/Redo history for annotations
+  const annotationHistory = useAnnotationHistory();
 
   // Wrap selectDocument to also reset selected chunk
   const handleSelectDocument = useCallback((docId: string) => {
@@ -134,6 +139,247 @@ const Index = () => {
   const activeAnnotation = activeSelectedChunkId 
     ? (mode === 'chart' ? chartProcessor.getAnnotation(activeSelectedChunkId) : getAnnotation(activeSelectedChunkId))
     : undefined;
+
+  // Handle annotation with history tracking
+  const handleAnnotate = useCallback((
+    chunkId: string,
+    label: PrimaryLabel,
+    options: {
+      removeReason?: RemoveReason;
+      condenseStrategy?: CondenseStrategy;
+      scope?: LabelScope;
+      overrideJustification?: string;
+    }
+  ) => {
+    const currentAnnotation = mode === 'chart' 
+      ? chartProcessor.getAnnotation(chunkId) 
+      : getAnnotation(chunkId);
+
+    // Save to history before making changes
+    annotationHistory.pushAction({
+      type: 'annotation',
+      data: {
+        type: currentAnnotation ? 'update' : 'add',
+        chunkId,
+        previousLabel: currentAnnotation?.label ?? null,
+        newLabel: label,
+        previousOptions: currentAnnotation ? {
+          removeReason: currentAnnotation.removeReason,
+          condenseStrategy: currentAnnotation.condenseStrategy,
+          scope: currentAnnotation.scope,
+        } : undefined,
+        newOptions: options,
+      },
+    });
+
+    if (mode === 'chart') {
+      chartProcessor.annotateChunk(chunkId, label, options);
+    } else {
+      annotateChunk(chunkId, label, options);
+    }
+  }, [mode, chartProcessor, annotateChunk, getAnnotation, annotationHistory]);
+
+  // Handle remove annotation with history tracking
+  const handleRemoveAnnotation = useCallback((chunkId: string) => {
+    const currentAnnotation = mode === 'chart' 
+      ? chartProcessor.getAnnotation(chunkId) 
+      : getAnnotation(chunkId);
+
+    if (currentAnnotation) {
+      // Save to history before removing
+      annotationHistory.pushAction({
+        type: 'annotation',
+        data: {
+          type: 'remove',
+          chunkId,
+          previousLabel: currentAnnotation.label,
+          newLabel: undefined,
+          previousOptions: {
+            removeReason: currentAnnotation.removeReason,
+            condenseStrategy: currentAnnotation.condenseStrategy,
+            scope: currentAnnotation.scope,
+          },
+        },
+      });
+    }
+
+    if (mode === 'chart') {
+      chartProcessor.removeAnnotation(chunkId);
+    } else {
+      removeAnnotation(chunkId);
+    }
+  }, [mode, chartProcessor, removeAnnotation, getAnnotation, annotationHistory]);
+
+  // Handle undo
+  const handleUndo = useCallback(() => {
+    const action = annotationHistory.undo();
+    if (!action) return;
+
+    const data = action.data as AnnotationActionData;
+    
+    if (data.type === 'add') {
+      // Undo add = remove the annotation
+      if (data.chunkId) {
+        if (mode === 'chart') {
+          chartProcessor.removeAnnotation(data.chunkId);
+        } else {
+          removeAnnotation(data.chunkId);
+        }
+      }
+    } else if (data.type === 'remove' || data.type === 'update') {
+      // Undo remove/update = restore previous state
+      if (data.chunkId && data.previousLabel) {
+        const prevOptions = data.previousOptions as {
+          removeReason?: RemoveReason;
+          condenseStrategy?: CondenseStrategy;
+          scope?: LabelScope;
+        } | undefined;
+        
+        if (mode === 'chart') {
+          chartProcessor.annotateChunk(data.chunkId, data.previousLabel as PrimaryLabel, prevOptions || {});
+        } else {
+          annotateChunk(data.chunkId, data.previousLabel as PrimaryLabel, prevOptions || {});
+        }
+      }
+    } else if (data.type === 'bulk_add' && data.chunkIds) {
+      // Undo bulk add = remove all
+      for (const chunkId of data.chunkIds) {
+        if (mode === 'chart') {
+          chartProcessor.removeAnnotation(chunkId);
+        } else {
+          removeAnnotation(chunkId);
+        }
+      }
+    }
+
+    toast({
+      title: 'Undo',
+      description: 'Action undone',
+      duration: 1500,
+    });
+  }, [annotationHistory, mode, chartProcessor, removeAnnotation, annotateChunk]);
+
+  // Handle redo
+  const handleRedo = useCallback(() => {
+    const action = annotationHistory.redo();
+    if (!action) return;
+
+    const data = action.data as AnnotationActionData;
+    
+    if (data.type === 'add' || data.type === 'update') {
+      // Redo add/update = apply the new label
+      if (data.chunkId && data.newLabel) {
+        const newOptions = data.newOptions as {
+          removeReason?: RemoveReason;
+          condenseStrategy?: CondenseStrategy;
+          scope?: LabelScope;
+        } | undefined;
+        
+        if (mode === 'chart') {
+          chartProcessor.annotateChunk(data.chunkId, data.newLabel as PrimaryLabel, newOptions || {});
+        } else {
+          annotateChunk(data.chunkId, data.newLabel as PrimaryLabel, newOptions || {});
+        }
+      }
+    } else if (data.type === 'remove') {
+      // Redo remove = remove again
+      if (data.chunkId) {
+        if (mode === 'chart') {
+          chartProcessor.removeAnnotation(data.chunkId);
+        } else {
+          removeAnnotation(data.chunkId);
+        }
+      }
+    } else if (data.type === 'bulk_add' && data.chunkIds && data.newLabel) {
+      // Redo bulk add = apply to all again
+      const newOptions = data.newOptions as {
+        removeReason?: RemoveReason;
+        condenseStrategy?: CondenseStrategy;
+        scope?: LabelScope;
+      } | undefined;
+      
+      if (mode === 'chart') {
+        chartProcessor.bulkAnnotateChunks(data.chunkIds, data.newLabel as PrimaryLabel, newOptions || {});
+      } else {
+        bulkAnnotateChunks(data.chunkIds, data.newLabel as PrimaryLabel, newOptions || {});
+      }
+    }
+
+    toast({
+      title: 'Redo',
+      description: 'Action redone',
+      duration: 1500,
+    });
+  }, [annotationHistory, mode, chartProcessor, removeAnnotation, annotateChunk, bulkAnnotateChunks]);
+
+  // Handle bulk annotate with history tracking
+  const handleBulkAnnotate = useCallback(async (
+    chunkIds: string[],
+    label: PrimaryLabel,
+    options?: {
+      removeReason?: RemoveReason;
+      condenseStrategy?: CondenseStrategy;
+      scope?: LabelScope;
+    }
+  ) => {
+    // Save to history before making changes
+    annotationHistory.pushAction({
+      type: 'annotation',
+      data: {
+        type: 'bulk_add',
+        chunkIds,
+        newLabel: label,
+        newOptions: options,
+      },
+    });
+
+    if (mode === 'chart') {
+      await chartProcessor.bulkAnnotateChunks(chunkIds, label, options || {});
+    } else {
+      await bulkAnnotateChunks(chunkIds, label, options || {});
+    }
+  }, [mode, chartProcessor, bulkAnnotateChunks, annotationHistory]);
+
+  // Keyboard shortcuts for undo/redo
+  useKeyboardShortcuts([
+    { 
+      key: 'z', 
+      handler: () => {
+        // Check for Ctrl/Cmd + Z
+        // This is a simplified check - the actual modifier check happens in the event
+      },
+      caseInsensitive: true,
+      description: 'Undo' 
+    },
+  ], { enabled: false }); // Disabled - using native event listener instead
+
+  // Use native event listener for proper modifier key detection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore when typing in form fields
+      if (
+        e.target instanceof HTMLInputElement || 
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifierKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (modifierKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if (modifierKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
 
   // Loading state
   if (authLoading) {
@@ -255,21 +501,9 @@ const Index = () => {
           // Callbacks
           onChunkSelect={setActiveSelectedChunkId}
           onAnnotationViewChange={setAnnotationView}
-          onAnnotate={(chunkId, label, options) => {
-            if (mode === 'chart') {
-              chartProcessor.annotateChunk(chunkId, label, options);
-            } else {
-              annotateChunk(chunkId, label, options);
-            }
-          }}
-          onRemoveAnnotation={(chunkId) => {
-            if (mode === 'chart') {
-              chartProcessor.removeAnnotation(chunkId);
-            } else {
-              removeAnnotation(chunkId);
-            }
-          }}
-          onBulkAnnotate={mode === 'chart' ? chartProcessor.bulkAnnotateChunks : bulkAnnotateChunks}
+          onAnnotate={handleAnnotate}
+          onRemoveAnnotation={handleRemoveAnnotation}
+          onBulkAnnotate={handleBulkAnnotate}
           onAddHighlight={textHighlights.addHighlight}
           onRemoveHighlight={textHighlights.removeHighlight}
           onUpdateHighlight={textHighlights.updateHighlight}
@@ -290,6 +524,7 @@ const Index = () => {
           onNewDocument={() => {
             setActiveSelectedChunkId(null);
             textHighlights.clearHighlights();
+            annotationHistory.clear();
             if (mode === 'chart') {
               chartProcessor.clearChart();
             } else if (mode === 'batch') {
@@ -298,6 +533,13 @@ const Index = () => {
               handleSelectDocument('');
             }
           }}
+          // Undo/Redo
+          canUndo={annotationHistory.canUndo}
+          canRedo={annotationHistory.canRedo}
+          undoCount={annotationHistory.stats.undoCount}
+          redoCount={annotationHistory.stats.redoCount}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
         />
       </main>
     </div>

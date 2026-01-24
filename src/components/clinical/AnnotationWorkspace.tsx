@@ -5,11 +5,13 @@ import { BulkActions } from '@/components/clinical/BulkActions';
 import { BatchQueuePanel } from '@/components/clinical/BatchQueuePanel';
 import { ChartQueuePanel, ChartNoteItem } from '@/components/clinical/ChartQueuePanel';
 import { TextAnnotator } from '@/components/clinical/TextAnnotator';
+import { UndoRedoButtons } from '@/components/clinical/UndoRedoButtons';
 import { AIAssistantWidget } from '@/components/intelligence/AIAssistantWidget';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { 
   ResizablePanelGroup, 
   ResizablePanel, 
@@ -91,6 +93,13 @@ interface AnnotationWorkspaceProps {
   onChartClear: () => void;
   // Document actions
   onNewDocument: () => void;
+  // Undo/Redo
+  canUndo: boolean;
+  canRedo: boolean;
+  undoCount: number;
+  redoCount: number;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 export function AnnotationWorkspace({
@@ -128,6 +137,12 @@ export function AnnotationWorkspace({
   onChartPrev,
   onChartClear,
   onNewDocument,
+  canUndo,
+  canRedo,
+  undoCount,
+  redoCount,
+  onUndo,
+  onRedo,
 }: AnnotationWorkspaceProps) {
   const noteSummary = activeDocument
     ? `Note type: ${activeDocument.noteType ?? 'General'} · ${activeDocument.chunks.length} segments`
@@ -139,7 +154,7 @@ export function AnnotationWorkspace({
   }
 
   return (
-    <>
+    <TooltipProvider>
       <ResizablePanelGroup direction="horizontal" className="h-full">
         {/* Batch queue sidebar */}
         {mode === 'batch' && (
@@ -199,6 +214,18 @@ export function AnnotationWorkspace({
           <div className="h-full flex flex-col">
             <div className="panel-header flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
+                {/* Undo/Redo buttons */}
+                <UndoRedoButtons
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  onUndo={onUndo}
+                  onRedo={onRedo}
+                  undoCount={undoCount}
+                  redoCount={redoCount}
+                />
+                
+                <div className="h-4 w-px bg-border" />
+                
                 {/* View mode toggle */}
                 <Tabs value={annotationView} onValueChange={(v) => onAnnotationViewChange(v as 'chunks' | 'highlight')}>
                   <TabsList className="h-7">
@@ -347,6 +374,6 @@ export function AnnotationWorkspace({
       </ResizablePanelGroup>
       
       {activeDocument && <AIAssistantWidget noteSummary={noteSummary} noteTitle={noteTitle} />}
-    </>
+    </TooltipProvider>
   );
 }
