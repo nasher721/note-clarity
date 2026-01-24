@@ -134,7 +134,14 @@ const Index = () => {
 
   // Get selected chunk ID and annotation based on mode
   const activeSelectedChunkId = mode === 'chart' ? chartSelectedChunkId : selectedChunkId;
-  const setActiveSelectedChunkId = mode === 'chart' ? setChartSelectedChunkId : setSelectedChunkId;
+  
+  const handleChunkSelect = useCallback((chunkId: string | null) => {
+    if (mode === 'chart') {
+      setChartSelectedChunkId(chunkId);
+    } else {
+      setSelectedChunkId(chunkId);
+    }
+  }, [mode]);
   
   const activeAnnotation = activeSelectedChunkId 
     ? (mode === 'chart' ? chartProcessor.getAnnotation(activeSelectedChunkId) : getAnnotation(activeSelectedChunkId))
@@ -534,9 +541,9 @@ const Index = () => {
           chartNoteItems={chartProcessor.noteItems}
           chartCurrentIndex={chartProcessor.currentIndex}
           // Callbacks
-          onChunkSelect={setActiveSelectedChunkId}
-          onAnnotationViewChange={setAnnotationView}
-          onAnnotate={handleAnnotate}
+           onChunkSelect={handleChunkSelect}
+           onAnnotationViewChange={setAnnotationView}
+           onAnnotate={handleAnnotate}
           onRemoveAnnotation={handleRemoveAnnotation}
           onClearAllAnnotations={handleClearAllAnnotations}
           onBulkAnnotate={handleBulkAnnotate}
@@ -558,7 +565,7 @@ const Index = () => {
           onChartClear={chartProcessor.clearChart}
           // Document actions
           onNewDocument={() => {
-            setActiveSelectedChunkId(null);
+            handleChunkSelect(null);
             textHighlights.clearHighlights();
             annotationHistory.clear();
             if (mode === 'chart') {
