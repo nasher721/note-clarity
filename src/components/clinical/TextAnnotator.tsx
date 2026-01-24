@@ -151,10 +151,15 @@ export function TextAnnotator({
       return;
     }
 
-    if (activeTool === 'select' && segment.highlights.length > 0) {
-      // Select highlight for editing
+    // Always open labeling panel when clicking a highlight (any tool mode)
+    if (segment.highlights.length > 0) {
       const topHighlight = segment.highlights[segment.highlights.length - 1];
+      // If clicking the same highlight, keep it selected; otherwise switch to new one
       setSelectedHighlight(topHighlight);
+      e.stopPropagation();
+    } else {
+      // Clicking non-highlighted area clears selection
+      setSelectedHighlight(null);
     }
   }, [activeTool, onRemoveHighlight]);
 
