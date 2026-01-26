@@ -36,20 +36,20 @@ export class OCRService {
         try {
             const worker = await this.getWorker();
 
-            const ret = await worker.recognize(file, {
-                rotateAuto: true,
-            }, {
-                logger: m => {
-                    if (m.status === 'recognizing text' && onProgress) {
-                        onProgress(m.progress * 100);
-                    }
-                }
-            });
+            const ret = await worker.recognize(file);
+
+            // Call progress callback if provided
+            if (onProgress) {
+                onProgress(100);
+            }
+
+            const text = ret.data.text || '';
+            const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
 
             return {
-                text: ret.data.text,
-                confidence: ret.data.confidence,
-                wordCount: ret.data.words.length
+                text,
+                confidence: ret.data.confidence ?? 0,
+                wordCount
             };
         } catch (error) {
             console.error('OCR Processing Error:', error);

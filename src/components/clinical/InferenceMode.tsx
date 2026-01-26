@@ -31,10 +31,10 @@ export function InferenceMode({ learnedAnnotations }: InferenceModeProps) {
   const [extractedFields, setExtractedFields] = useState<ExtractedField[]>([]);
   const [fieldFilter, setFieldFilter] = useState<'all' | 'selected'>('all');
 
-  const handleDocumentSubmit = (text: string, noteType?: string, service?: string) => {
+  const handleDocumentSubmit = async (text: string, noteType?: string, service?: string) => {
     const chunks = parseDocument(text);
 
-    const { annotations, explanations, extractedFields: extracted } = buildModelAnnotations({
+    const { annotations, explanations, extractedFields: extracted } = await buildModelAnnotations({
       chunks,
       learnedAnnotations,
       noteType,

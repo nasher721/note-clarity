@@ -39,10 +39,6 @@ export function TrainingModePage({
         </p>
       </div>
 
-
-
-      // ...
-
       <div className="mb-6">
         <Tabs defaultValue="text" className="w-full">
           <TabsList className="mb-4">
