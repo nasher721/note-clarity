@@ -3,6 +3,8 @@ import { DocumentHistory } from '@/components/clinical/DocumentHistory';
 import { Button } from '@/components/ui/button';
 import { Layers, ClipboardList } from 'lucide-react';
 import { ClinicalDocument } from '@/types/clinical';
+import { ImageUpload } from '@/components/common/ImageUpload';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 export interface TrainingModePageProps {
   documents: ClinicalDocument[];
@@ -32,15 +34,36 @@ export function TrainingModePage({
       <div className="mb-6 p-4 bg-accent/30 rounded-lg border border-accent">
         <h2 className="font-semibold mb-2">Training Mode</h2>
         <p className="text-sm text-muted-foreground">
-          Upload a clinical document to begin labeling chunks. Your annotations are saved 
+          Upload a clinical document to begin labeling chunks. Your annotations are saved
           to the cloud and used to train rules that can automatically clean future documents.
         </p>
       </div>
-      
-      <div className="flex gap-3 mb-6">
-        <DocumentUploader onDocumentSubmit={onDocumentSubmit} />
+
+
+
+      // ...
+
+      <div className="mb-6">
+        <Tabs defaultValue="text" className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="text">Paste Text</TabsTrigger>
+            <TabsTrigger value="image">Scan Document (OCR)</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="text">
+            <DocumentUploader onDocumentSubmit={onDocumentSubmit} />
+          </TabsContent>
+
+          <TabsContent value="image">
+            <ImageUpload
+              onTextExtracted={(text, name) => {
+                onDocumentSubmit(text, 'OCR Import', 'Scanned Document');
+              }}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
-      
+
       <div className="flex items-center gap-4 mb-6">
         <div className="h-px flex-1 bg-border" />
         <span className="text-sm text-muted-foreground">or switch mode</span>
@@ -57,11 +80,11 @@ export function TrainingModePage({
           Chart Mode {chartIsLoaded && `(${chartNotesLength})`}
         </Button>
       </div>
-      
+
       {documents.length > 0 && (
         <div className="mt-8">
-          <DocumentHistory 
-            documents={documents} 
+          <DocumentHistory
+            documents={documents}
             onSelect={onSelectDocument}
             loading={docLoading}
           />

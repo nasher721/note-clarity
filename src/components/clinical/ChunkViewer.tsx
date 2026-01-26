@@ -1,17 +1,26 @@
 import { DocumentChunk, ChunkAnnotation, PrimaryLabel } from '@/types/clinical';
+import { CollaboratorCursors } from '@/components/collaboration/CollaboratorCursors';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { AlertTriangle, Check, Scissors, Trash2, Sparkles, Pencil, X } from 'lucide-react';
+import { AlertTriangle, Check, Scissors, Trash2, Sparkles, Pencil, X, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ModelExplanation } from '@/utils/inferenceModel';
+
+interface CopilotSuggestion {
+  annotation: ChunkAnnotation;
+  explanation: ModelExplanation;
+}
 
 interface ChunkViewerProps {
   chunks: DocumentChunk[];
   annotations: ChunkAnnotation[];
   selectedChunkId: string | null;
+  suggestions?: Record<string, CopilotSuggestion>;
   onChunkSelect: (chunkId: string) => void;
   onQuickLabel?: (chunkId: string, label: PrimaryLabel) => void;
   onRemoveLabel?: (chunkId: string) => void;
+  onAcceptSuggestion?: (chunkId: string, suggestion: CopilotSuggestion) => void;
 }
 
 const CHUNK_TYPE_LABELS: Record<string, string> = {
@@ -48,13 +57,15 @@ function getLabelClass(label: PrimaryLabel) {
   }
 }
 
-export function ChunkViewer({ 
-  chunks, 
-  annotations, 
-  selectedChunkId, 
+export function ChunkViewer({
+  chunks,
+  annotations,
+  selectedChunkId,
+  suggestions = {},
   onChunkSelect,
   onQuickLabel,
-  onRemoveLabel 
+  onRemoveLabel,
+  onAcceptSuggestion,
 }: ChunkViewerProps) {
   const getAnnotation = (chunkId: string) => annotations.find(a => a.chunkId === chunkId);
 
@@ -68,12 +79,26 @@ export function ChunkViewer({
     onRemoveLabel?.(chunkId);
   };
 
+  const handleAcceptSuggestion = (e: React.MouseEvent, chunkId: string, suggestion: CopilotSuggestion) => {
+    e.stopPropagation();
+    onAcceptSuggestion?.(chunkId, suggestion);
+  };
+
   return (
     <div className="space-y-2">
       {chunks.map((chunk, index) => {
         const annotation = getAnnotation(chunk.id);
+        const suggestion = !annotation ? suggestions[chunk.id] : undefined;
         const isSelected = selectedChunkId === chunk.id;
-        
+
+        // Determine border class for suggestion glow
+        let suggestionClass = '';
+        if (suggestion) {
+          if (suggestion.annotation.label === 'KEEP') suggestionClass = 'ring-1 ring-green-400/50 bg-green-50/10';
+          if (suggestion.annotation.label === 'CONDENSE') suggestionClass = 'ring-1 ring-yellow-400/50 bg-yellow-50/10';
+          if (suggestion.annotation.label === 'REMOVE') suggestionClass = 'ring-1 ring-red-400/50 bg-red-50/10';
+        }
+
         return (
           <div
             key={chunk.id}
@@ -83,66 +108,17 @@ export function ChunkViewer({
               'border hover:border-primary/50',
               isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : '',
               annotation ? getLabelClass(annotation.label) : 'bg-card border-border',
+              suggestion && !isSelected ? suggestionClass : '',
               chunk.isCritical && !annotation?.overrideJustification && 'chunk-critical'
             )}
           >
+            <CollaboratorCursors chunkId={chunk.id} />
+
             {/* Quick action buttons on hover for labeled chunks */}
             {annotation && onQuickLabel && (
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="flex items-center gap-1 bg-background/95 rounded-lg shadow-md border p-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant={annotation.label === 'KEEP' ? 'default' : 'ghost'}
-                        className={cn(
-                          "h-7 w-7",
-                          annotation.label === 'KEEP' && "bg-label-keep hover:bg-label-keep/90"
-                        )}
-                        onClick={(e) => handleQuickLabel(e, chunk.id, 'KEEP')}
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">Keep</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant={annotation.label === 'CONDENSE' ? 'default' : 'ghost'}
-                        className={cn(
-                          "h-7 w-7",
-                          annotation.label === 'CONDENSE' && "bg-label-condense hover:bg-label-condense/90 text-black"
-                        )}
-                        onClick={(e) => handleQuickLabel(e, chunk.id, 'CONDENSE')}
-                      >
-                        <Scissors className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">Condense</TooltipContent>
-                  </Tooltip>
-                  
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant={annotation.label === 'REMOVE' ? 'default' : 'ghost'}
-                        className={cn(
-                          "h-7 w-7",
-                          annotation.label === 'REMOVE' && "bg-label-remove hover:bg-label-remove/90"
-                        )}
-                        onClick={(e) => handleQuickLabel(e, chunk.id, 'REMOVE')}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">Remove</TooltipContent>
-                  </Tooltip>
-                  
-                  <div className="w-px h-5 bg-border mx-0.5" />
-                  
+                  {/* ... existing buttons ... */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -159,9 +135,27 @@ export function ChunkViewer({
                 </div>
               </div>
             )}
-            
+
+            {/* Suggestion Accept Button */}
+            {suggestion && onAcceptSuggestion && !isSelected && (
+              <div className="absolute top-2 right-2 opacity-100 transition-opacity z-10">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 gap-1 text-[10px] bg-background/80 hover:bg-primary hover:text-primary-foreground border shadow-sm"
+                  onClick={(e) => handleAcceptSuggestion(e, chunk.id, suggestion)}
+                >
+                  <Bot className="h-3 w-3" />
+                  Accept {suggestion.annotation.label}
+                  <span className="opacity-70 text-[9px]">
+                    {(suggestion.explanation.confidence * 100).toFixed(0)}%
+                  </span>
+                </Button>
+              </div>
+            )}
+
             {/* Click to edit hint for unlabeled chunks */}
-            {!annotation && !isSelected && (
+            {!annotation && !suggestion && !isSelected && (
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="bg-background/95 px-2 py-1 rounded-md shadow-sm border text-xs text-muted-foreground flex items-center gap-1">
                   <Pencil className="h-3 w-3" />
@@ -169,7 +163,7 @@ export function ChunkViewer({
                 </div>
               </div>
             )}
-            
+
             {/* Chunk header */}
             <div className="flex items-center gap-2 mb-2">
               <Badge variant="secondary" className="text-xs font-medium">
@@ -178,23 +172,36 @@ export function ChunkViewer({
               <Badge variant="outline" className="text-xs">
                 {CHUNK_TYPE_LABELS[chunk.type] || chunk.type}
               </Badge>
-              
+
               {chunk.isCritical && (
                 <Badge variant="destructive" className="text-xs gap-1">
                   <AlertTriangle className="h-3 w-3" />
                   Critical
                 </Badge>
               )}
-              
-              {chunk.suggestedLabel && !annotation && (
+
+              {/* Existing "Suggested" badge logic (parser based) - merge or hide if copilot active? */}
+              {chunk.suggestedLabel && !annotation && !suggestion && (
                 <Badge variant="secondary" className="text-xs gap-1 bg-accent text-accent-foreground">
                   <Sparkles className="h-3 w-3" />
                   Suggested: {chunk.suggestedLabel}
                 </Badge>
               )}
-              
+
+              {/* Copilot Badge */}
+              {suggestion && (
+                <Badge variant="outline" className={cn("text-xs gap-1 ml-auto animate-pulse",
+                  suggestion.annotation.label === 'KEEP' && 'text-green-600 border-green-200',
+                  suggestion.annotation.label === 'CONDENSE' && 'text-yellow-600 border-yellow-200',
+                  suggestion.annotation.label === 'REMOVE' && 'text-red-600 border-red-200'
+                )}>
+                  <Bot className="h-3 w-3" />
+                  Copilot: {suggestion.annotation.label}
+                </Badge>
+              )}
+
               {annotation && (
-                <Badge 
+                <Badge
                   className={cn(
                     'text-xs gap-1 ml-auto group-hover:ring-2 group-hover:ring-primary/30 transition-all',
                     annotation.label === 'KEEP' && 'bg-label-keep text-white',
@@ -211,19 +218,20 @@ export function ChunkViewer({
             {/* Chunk content */}
             <div className={cn(
               'text-sm font-mono whitespace-pre-wrap break-words',
-              annotation?.label === 'REMOVE' && 'line-through opacity-60'
+              annotation?.label === 'REMOVE' && 'line-through opacity-60',
+              suggestion?.annotation.label === 'REMOVE' && 'opacity-80'
             )}>
               {chunk.text.length > 500 ? chunk.text.substring(0, 500) + '...' : chunk.text}
             </div>
 
             {/* Confidence indicator */}
-            {chunk.confidence && chunk.confidence > 0 && !annotation && (
+            {chunk.confidence && chunk.confidence > 0 && !annotation && !suggestion && (
               <div className="absolute bottom-2 right-2">
-                <div 
+                <div
                   className="h-1.5 w-16 bg-muted rounded-full overflow-hidden"
                   title={`${Math.round(chunk.confidence * 100)}% confidence`}
                 >
-                  <div 
+                  <div
                     className="h-full bg-primary/60 rounded-full"
                     style={{ width: `${chunk.confidence * 100}%` }}
                   />
@@ -236,3 +244,4 @@ export function ChunkViewer({
     </div>
   );
 }
+

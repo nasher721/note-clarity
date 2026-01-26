@@ -1,5 +1,7 @@
+
 import { ChunkAnnotation, CondenseStrategy, DocumentChunk, PrimaryLabel, RemoveReason } from '@/types/clinical';
 import { findDuplicates } from '@/utils/chunkParser';
+import { SemanticSearchService } from '@/services/semanticSearchService';
 
 const STOPWORDS = new Set([
   'a',
@@ -124,31 +126,58 @@ const scopeWeight = (scope: ChunkAnnotation['scope'], noteType?: string, service
   return 0.8;
 };
 
-const getSimilarityMatch = (
+const getSimilarityMatch = async (
   chunk: DocumentChunk,
   learnedAnnotations: ChunkAnnotation[],
   noteType?: string,
   service?: string,
 ) => {
   const normalizedChunk = normalizeText(chunk.text);
-  let bestMatch: { annotation: ChunkAnnotation; score: number } | null = null;
 
+  // 1. Exact exact match first (cheapest)
   for (const annotation of learnedAnnotations) {
-    const normalizedAnnotation = normalizeText(annotation.rawText);
-    const exactMatch = normalizedAnnotation === normalizedChunk;
-    if (exactMatch) {
+    if (normalizeText(annotation.rawText) === normalizedChunk) {
       return { annotation, score: 1 };
     }
+  }
 
+  // 2. Semantic Search (Most accurate, expensive)
+  try {
+    const model = await SemanticSearchService.getModel(); // Check if loaded
+    const texts = [chunk.text, ...learnedAnnotations.map(a => a.rawText)];
+    const embeddings = await SemanticSearchService.embed(texts);
+
+    const chunkEmbedding = embeddings[0];
+    const ruleEmbeddings = embeddings.slice(1);
+
+    let bestSemMatch: { annotation: ChunkAnnotation; score: number } | null = null;
+
+    ruleEmbeddings.forEach((embedding, i) => {
+      const score = SemanticSearchService.cosineSimilarity(chunkEmbedding, embedding);
+      if (score > 0.75) { // Threshold for semantic match
+        const annotation = learnedAnnotations[i];
+        const weighted = score * scopeWeight(annotation.scope, noteType, service);
+        if (!bestSemMatch || weighted > bestSemMatch.score) {
+          bestSemMatch = { annotation, score: weighted };
+        }
+      }
+    });
+
+    if (bestSemMatch) return bestSemMatch;
+
+  } catch (e) {
+    // Fallback if model failed or not loaded
+  }
+
+  // 3. Jaccard Index (Fallback)
+  let bestMatch: { annotation: ChunkAnnotation; score: number } | null = null;
+  for (const annotation of learnedAnnotations) {
     const similarity = jaccardSimilarity(chunk.text, annotation.rawText);
     if (similarity < 0.5) continue;
 
-    const typeBoost = annotation.sectionType === chunk.type ? 0.1 : 0;
-    const weighted = similarity + typeBoost;
-    const score = Math.min(weighted * scopeWeight(annotation.scope, noteType, service), 1);
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = { annotation, score };
+    const weighted = similarity * scopeWeight(annotation.scope, noteType, service);
+    if (!bestMatch || weighted > bestMatch.score) {
+      bestMatch = { annotation, score: weighted };
     }
   }
 
@@ -315,15 +344,15 @@ const getDuplicateSuggestion = (chunk: DocumentChunk, duplicates: Set<string>): 
   };
 };
 
-const getLearnedSuggestion = (
+const getLearnedSuggestion = async (
   chunk: DocumentChunk,
   learnedAnnotations: ChunkAnnotation[],
   noteType?: string,
   service?: string,
-): MatchResult | null => {
+): Promise<MatchResult | null> => {
   if (!learnedAnnotations.length) return null;
 
-  const match = getSimilarityMatch(chunk, learnedAnnotations, noteType, service);
+  const match = await getSimilarityMatch(chunk, learnedAnnotations, noteType, service);
   if (!match) return null;
 
   if (match.score < 0.7) return null;
@@ -563,7 +592,7 @@ const dedupeExtractedFields = (fields: ExtractedField[]) => {
   return Array.from(deduped.values());
 };
 
-export const buildModelAnnotations = ({
+export const buildModelAnnotations = async ({
   chunks,
   learnedAnnotations,
   noteType,
@@ -583,7 +612,7 @@ export const buildModelAnnotations = ({
   for (const chunk of chunks) {
     extractedFields.push(...extractFieldsFromChunk(chunk));
 
-    const learned = getLearnedSuggestion(chunk, learnedAnnotations, noteType, service);
+    const learned = await getLearnedSuggestion(chunk, learnedAnnotations, noteType, service);
     if (learned) {
       annotations.push(learned.annotation);
       explanations[chunk.id] = learned.explanation;

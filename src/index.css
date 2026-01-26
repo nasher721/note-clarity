@@ -123,6 +123,7 @@
   }
 }
 
+
 @layer base {
   * {
     @apply border-border;
@@ -135,6 +136,21 @@
 
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-background/80 backdrop-blur-md border-b;
+  }
+  
+  .glass-card {
+    @apply bg-card/50 backdrop-blur-sm border shadow-sm;
+  }
+
+  /* Safe area padding for mobile adjustments */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 

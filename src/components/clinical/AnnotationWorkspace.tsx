@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react';
+import { useCollaboration } from '@/contexts/CollaborationContext';
 import { ChunkViewer } from '@/components/clinical/ChunkViewer';
 import { LabelingPanel } from '@/components/clinical/LabelingPanel';
 import { DiffPreview } from '@/components/clinical/DiffPreview';
@@ -13,22 +15,23 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { 
-  ResizablePanelGroup, 
-  ResizablePanel, 
-  ResizableHandle 
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle
 } from '@/components/ui/resizable';
-import { LayoutGrid, Highlighter, Check, Scissors, Trash2 } from 'lucide-react';
-import { 
-  ClinicalDocument, 
-  ChunkAnnotation, 
-  PrimaryLabel, 
-  RemoveReason, 
-  CondenseStrategy, 
+import { LayoutGrid, Highlighter, Check, Scissors, Trash2, Tag, Eye, List as Layers, ClipboardList, PenTool as Tags, FileText } from 'lucide-react';
+import {
+  ClinicalDocument,
+  ChunkAnnotation,
+  PrimaryLabel,
+  RemoveReason,
+  CondenseStrategy,
   LabelScope,
-  TextHighlight 
+  TextHighlight
 } from '@/types/clinical';
 import { BatchDocument } from '@/hooks/useBatchProcessor';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 interface AnnotationWorkspaceProps {
   mode: 'training' | 'batch' | 'chart';
@@ -36,6 +39,8 @@ interface AnnotationWorkspaceProps {
   activeSelectedChunkId: string | null;
   activeAnnotation: ChunkAnnotation | undefined;
   annotationView: 'chunks' | 'highlight';
+  suggestions?: Record<string, any>; // Using any to avoid complex import cycles or define interface here
+  onAcceptSuggestion?: (chunkId: string, suggestion: any) => void;
   highlights: TextHighlight[];
   highlightStats: { total: number; keep: number; condense: number; remove: number };
   // Batch mode props
@@ -146,7 +151,23 @@ export function AnnotationWorkspace({
   redoCount,
   onUndo,
   onRedo,
+  suggestions,
+  onAcceptSuggestion,
 }: AnnotationWorkspaceProps) {
+  const collab = useCollaboration();
+
+  // Broadcast cursor when selection changes
+  // We use a useEffect because onChunkSelect is a callback prop, but dragging selection might be granular?
+  // For now, chunk selection is the main interaction.
+  useEffect(() => {
+    if (collab?.broadcastCursor && activeSelectedChunkId) {
+      collab.broadcastCursor({
+        chunkId: activeSelectedChunkId,
+        timestamp: Date.now(),
+      });
+    }
+  }, [activeSelectedChunkId, collab]);
+
   const noteSummary = activeDocument
     ? `Note type: ${activeDocument.noteType ?? 'General'} · ${activeDocument.chunks.length} segments`
     : undefined;
@@ -154,10 +175,171 @@ export function AnnotationWorkspace({
   const annotatedCount = activeDocument?.annotations.length ?? 0;
   const totalChunks = activeDocument?.chunks.length ?? 0;
 
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+
+  // State for mobile tabs
+  const [mobileTab, setMobileTab] = useState("document");
+
+  // Auto-switch to labeling tab on chunk select (mobile only)
+  useEffect(() => {
+    if (!isDesktop && activeSelectedChunkId) {
+      setMobileTab("labeling");
+    }
+  }, [activeSelectedChunkId, isDesktop]);
+
   if (!activeDocument) {
     return null;
   }
 
+  // --- Mobile Layout (Tabs) ---
+  if (!isDesktop) {
+    return (
+      <TooltipProvider>
+        <div className="h-full flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+            {/* Render active tab content */}
+            {mobileTab === 'queue' && (mode === 'batch' ? (
+              <BatchQueuePanel
+                queue={batchQueue}
+                currentIndex={currentBatchIndex}
+                isProcessing={batchIsProcessing}
+                stats={batchStats}
+                onGoToDocument={onBatchGoToDocument}
+                onNext={onBatchNext}
+                onPrev={onBatchPrev}
+                onStartProcessing={onBatchStartProcessing}
+                onRemove={onBatchRemove}
+                onClear={onBatchClear}
+              />
+            ) : (
+              <ChartQueuePanel
+                patientId={chartPatientId ?? ''}
+                notes={chartNoteItems}
+                currentIndex={chartCurrentIndex}
+                onGoToNote={onChartGoToNote}
+                onNext={onChartNext}
+                onPrev={onChartPrev}
+                onClear={onChartClear}
+              />
+            ))}
+
+            {mobileTab === 'document' && (
+              <div className="h-full flex flex-col">
+                <div className="border-b px-4 py-2 flex items-center justify-between bg-muted/20">
+                  <div className="flex items-center gap-2">
+                    <Tabs value={annotationView} onValueChange={(v) => onAnnotationViewChange(v as 'chunks' | 'highlight')}>
+                      <TabsList className="h-8">
+                        <TabsTrigger value="chunks" className="text-xs h-7">Chunks</TabsTrigger>
+                        <TabsTrigger value="highlight" className="text-xs h-7">Highlight</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  </div>
+                  <div className="flex gap-1">
+                    <UndoRedoButtons
+                      canUndo={canUndo} canRedo={canRedo}
+                      onUndo={onUndo} onRedo={onRedo}
+                      undoCount={undoCount} redoCount={redoCount}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-hidden">
+                  {annotationView === 'chunks' ? (
+                    <ScrollArea className="h-full">
+                      <div className="p-4 pb-20">
+                        <ChunkViewer
+                          chunks={activeDocument.chunks}
+                          annotations={activeDocument.annotations}
+                          selectedChunkId={activeSelectedChunkId}
+                          suggestions={suggestions}
+                          onChunkSelect={onChunkSelect}
+                          onQuickLabel={(chunkId, label) => onAnnotate(chunkId, label, {})}
+                          onRemoveLabel={onRemoveAnnotation}
+                          onAcceptSuggestion={onAcceptSuggestion}
+                        />
+                      </div>
+                    </ScrollArea>
+                  ) : (
+                    <TextAnnotator
+                      text={activeDocument.originalText}
+                      highlights={highlights}
+                      onAddHighlight={onAddHighlight}
+                      onRemoveHighlight={onRemoveHighlight}
+                      onUpdateHighlight={onUpdateHighlight}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {mobileTab === 'labeling' && (
+              <div className="h-full p-4 overflow-y-auto">
+                <h3 className="font-semibold mb-4 text-lg">Labeling Panel</h3>
+                <LabelingPanel
+                  chunk={activeDocument?.chunks.find(c => c.id === activeSelectedChunkId) || null}
+                  currentLabel={activeAnnotation?.label}
+                  currentReason={activeAnnotation?.removeReason}
+                  currentStrategy={activeAnnotation?.condenseStrategy}
+                  currentScope={activeAnnotation?.scope}
+                  onAnnotate={(label, options) => {
+                    if (activeSelectedChunkId) onAnnotate(activeSelectedChunkId, label, options);
+                  }}
+                  onClear={() => {
+                    if (activeSelectedChunkId) onRemoveAnnotation(activeSelectedChunkId);
+                  }}
+                />
+                {!activeSelectedChunkId && (
+                  <div className="text-center text-muted-foreground mt-8">
+                    Select a chunk in the Document tab to edit.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mobileTab === 'preview' && (
+              <div className="h-full flex flex-col">
+                <div className="p-3 border-b font-medium">Preview</div>
+                <div className="flex-1 overflow-hidden">
+                  <DiffPreview
+                    chunks={activeDocument.chunks}
+                    annotations={activeDocument.annotations}
+                    originalText={activeDocument.originalText}
+                    highlights={highlights}
+                    mode={annotationView}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Mobile Navigation */}
+          <div className="h-14 border-t bg-background flex items-center justify-around px-2 pb-safe">
+            {(mode === 'batch' || mode === 'chart') && (
+              <Button variant={mobileTab === 'queue' ? 'default' : 'ghost'} size="sm" onClick={() => setMobileTab('queue')} className="flex-col gap-1 h-auto py-1">
+                {mode === 'batch' ? <Layers className="h-4 w-4" /> : <ClipboardList className="h-4 w-4" />}
+                <span className="text-[10px]">Queue</span>
+              </Button>
+            )}
+            <Button variant={mobileTab === 'document' ? 'default' : 'ghost'} size="sm" onClick={() => setMobileTab('document')} className="flex-col gap-1 h-auto py-1">
+              <FileText className="h-4 w-4" />
+              <span className="text-[10px]">Doc</span>
+            </Button>
+            <Button variant={mobileTab === 'labeling' ? 'default' : 'ghost'} size="sm" onClick={() => setMobileTab('labeling')} className="flex-col gap-1 h-auto py-1">
+              <Tags className="h-4 w-4" />
+              <span className="text-[10px]">Label</span>
+            </Button>
+            <Button variant={mobileTab === 'preview' ? 'default' : 'ghost'} size="sm" onClick={() => setMobileTab('preview')} className="flex-col gap-1 h-auto py-1">
+              <Eye className="h-4 w-4" />
+              <span className="text-[10px]">Preview</span>
+            </Button>
+          </div>
+        </div>
+        {activeDocument && <AIAssistantWidget noteSummary={noteSummary} noteTitle={noteTitle} />}
+      </TooltipProvider>
+    );
+  }
+
+  // --- Desktop Layout (Resizable Panels) ---
   return (
     <TooltipProvider>
       <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -228,9 +410,9 @@ export function AnnotationWorkspace({
                   undoCount={undoCount}
                   redoCount={redoCount}
                 />
-                
+
                 <div className="h-4 w-px bg-border" />
-                
+
                 {/* View mode toggle */}
                 <Tabs value={annotationView} onValueChange={(v) => onAnnotationViewChange(v as 'chunks' | 'highlight')}>
                   <TabsList className="h-7">
@@ -244,13 +426,13 @@ export function AnnotationWorkspace({
                     </TabsTrigger>
                   </TabsList>
                 </Tabs>
-                
+
                 {annotationView === 'chunks' && (
                   <span className="text-xs text-muted-foreground">
                     ({activeDocument?.chunks.length || 0} segments)
                   </span>
                 )}
-                
+
                 {annotationView === 'highlight' && (
                   <div className="flex items-center gap-1.5">
                     {highlightStats.keep > 0 && (
@@ -274,7 +456,7 @@ export function AnnotationWorkspace({
                   </div>
                 )}
               </div>
-              
+
               <div className="flex items-center gap-2">
                 {activeDocument && annotationView === 'chunks' && (
                   <BulkActions
@@ -293,7 +475,7 @@ export function AnnotationWorkspace({
                     Clear All
                   </Button>
                 )}
-                <button 
+                <button
                   onClick={onNewDocument}
                   className="text-xs text-primary hover:underline"
                 >
@@ -308,7 +490,7 @@ export function AnnotationWorkspace({
               totalChunks={totalChunks}
               highlightStats={highlightStats}
             />
-            
+
             {/* Content based on annotation view */}
             {annotationView === 'chunks' ? (
               <ScrollArea className="flex-1">
@@ -318,11 +500,13 @@ export function AnnotationWorkspace({
                       chunks={activeDocument.chunks}
                       annotations={activeDocument.annotations}
                       selectedChunkId={activeSelectedChunkId}
+                      suggestions={suggestions}
                       onChunkSelect={onChunkSelect}
                       onQuickLabel={(chunkId, label) => {
                         onAnnotate(chunkId, label, {});
                       }}
                       onRemoveLabel={onRemoveAnnotation}
+                      onAcceptSuggestion={onAcceptSuggestion}
                     />
                   )}
                 </div>
@@ -405,7 +589,8 @@ export function AnnotationWorkspace({
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-      
+
+
       {activeDocument && <AIAssistantWidget noteSummary={noteSummary} noteTitle={noteTitle} />}
     </TooltipProvider>
   );
