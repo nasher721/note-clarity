@@ -92,7 +92,7 @@ export function TextAnnotator({
   const [pendingReason, setPendingReason] = useState<RemoveReason | ''>('');
   const [pendingStrategy, setPendingStrategy] = useState<CondenseStrategy | ''>('');
   const [pendingScope, setPendingScope] = useState<LabelScope>('global');
-  
+
   // Match mode settings
   const [matchMode, setMatchMode] = useState<MatchMode>('exact');
   const [fuzzyThreshold, setFuzzyThreshold] = useState(0.8); // 80% similarity
@@ -123,7 +123,7 @@ export function TextAnnotator({
 
   const handleApplyPendingLabel = useCallback((label: PrimaryLabel) => {
     if (!pendingSelection) return;
-    
+
     onAddHighlight({
       startIndex: pendingSelection.start,
       endIndex: pendingSelection.end,
@@ -131,7 +131,7 @@ export function TextAnnotator({
       label,
       scope: pendingScope,
     });
-    
+
     setPendingSelection(null);
     setPopupPosition(null);
   }, [pendingSelection, pendingScope, onAddHighlight]);
@@ -173,7 +173,7 @@ export function TextAnnotator({
     const matches: Array<{ start: number; end: number; similarity?: number }> = [];
     const normalizedSearch = searchText.trim().toLowerCase();
     if (normalizedSearch.length < 3) return matches; // Minimum 3 chars to avoid noise
-    
+
     const lowerText = text.toLowerCase();
 
     if (matchMode === 'exact') {
@@ -208,15 +208,15 @@ export function TextAnnotator({
       // Fuzzy matching - slide window across text
       const searchLen = normalizedSearch.length;
       const windowSizes = [searchLen, Math.floor(searchLen * 0.9), Math.ceil(searchLen * 1.1)];
-      
+
       for (const windowSize of windowSizes) {
         for (let i = 0; i <= text.length - windowSize; i++) {
           const window = lowerText.substring(i, i + windowSize);
           const similarity = getSimilarity(normalizedSearch, window);
-          
+
           if (similarity >= fuzzyThreshold) {
             // Check if this overlaps with an existing match
-            const overlaps = matches.some(m => 
+            const overlaps = matches.some(m =>
               (i >= m.start && i < m.end) || (i + windowSize > m.start && i + windowSize <= m.end)
             );
             if (!overlaps) {
@@ -229,11 +229,11 @@ export function TextAnnotator({
           }
         }
       }
-      
+
       // Sort by start position
       matches.sort((a, b) => a.start - b.start);
     }
-    
+
     return matches;
   }, [text, matchMode, fuzzyThreshold, getSimilarity]);
 
@@ -242,7 +242,7 @@ export function TextAnnotator({
     const patterns = findSimilarPatterns(searchText);
     // Filter out patterns that are already highlighted
     const unhighlightedPatterns = patterns.filter(p => {
-      return !highlights.some(h => 
+      return !highlights.some(h =>
         (h.startIndex <= p.start && h.endIndex >= p.end) || // Fully contained
         (p.start <= h.startIndex && p.end >= h.endIndex) // Contains highlight
       );
@@ -253,10 +253,10 @@ export function TextAnnotator({
   // Apply label to all similar patterns
   const handleApplyToAllSimilar = useCallback((searchText: string, label: PrimaryLabel, scope: LabelScope) => {
     const patterns = findSimilarPatterns(searchText);
-    
+
     // Filter out patterns that are already highlighted
     const newPatterns = patterns.filter(p => {
-      return !highlights.some(h => 
+      return !highlights.some(h =>
         (h.startIndex <= p.start && h.endIndex >= p.end) ||
         (p.start <= h.startIndex && p.end >= h.endIndex)
       );
@@ -298,51 +298,41 @@ export function TextAnnotator({
     if (!selection || selection.isCollapsed || !textRef.current) return;
 
     const range = selection.getRangeAt(0);
-    const textContent = textRef.current;
 
-    // Calculate the start and end indices within the full text
-    let startIndex = 0;
-    let endIndex = 0;
-    let foundStart = false;
-    let foundEnd = false;
+    // Ensure selection is inside our text container
+    if (!textRef.current.contains(range.commonAncestorContainer)) return;
 
-    const walker = document.createTreeWalker(textContent, NodeFilter.SHOW_TEXT);
-    let currentIndex = 0;
+    try {
+      // Create a range from the start of the container to the start of the selection
+      const preSelectionRange = range.cloneRange();
+      preSelectionRange.selectNodeContents(textRef.current);
+      preSelectionRange.setEnd(range.startContainer, range.startOffset);
 
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const nodeLength = node.textContent?.length || 0;
+      const startIndex = preSelectionRange.toString().length;
+      const selectedTextStr = range.toString();
+      const endIndex = startIndex + selectedTextStr.length;
 
-      if (!foundStart && node === range.startContainer) {
-        startIndex = currentIndex + range.startOffset;
-        foundStart = true;
-      }
+      // Validate against the actual text content length to prevent bounds errors
+      if (endIndex <= text.length) {
+        // Use text.substring to ensure we get the exact source text chars
+        const exactText = text.substring(startIndex, endIndex);
 
-      if (!foundEnd && node === range.endContainer) {
-        endIndex = currentIndex + range.endOffset;
-        foundEnd = true;
-        break;
-      }
+        if (exactText.trim().length > 0) {
+          setPendingSelection({ start: startIndex, end: endIndex, text: exactText });
+          setSelectedHighlight(null);
 
-      currentIndex += nodeLength;
-    }
-
-    if (foundStart && foundEnd && endIndex > startIndex) {
-      const selectedText = text.substring(startIndex, endIndex);
-      
-      if (selectedText.trim().length > 0) {
-        // Show popup for label selection instead of immediate apply
-        setPendingSelection({ start: startIndex, end: endIndex, text: selectedText });
-        setSelectedHighlight(null); // Clear any existing highlight selection
-        
-        // Calculate popup position
-        if (containerRef.current) {
-          const containerRect = containerRef.current.getBoundingClientRect();
-          const x = e.clientX - containerRect.left;
-          const y = e.clientY - containerRect.top;
-          setPopupPosition({ x, y });
+          // Calculate popup position
+          if (containerRef.current) {
+            const containerRect = containerRef.current.getBoundingClientRect();
+            // Use pointer event coordinates for simpler positioning relative to click
+            const x = e.clientX - containerRect.left;
+            const y = e.clientY - containerRect.top;
+            setPopupPosition({ x, y });
+          }
         }
       }
+    } catch (err) {
+      console.error('Selection error:', err);
     }
 
     selection.removeAllRanges();
@@ -360,7 +350,7 @@ export function TextAnnotator({
     if (segment.highlights.length > 0) {
       const topHighlight = segment.highlights[segment.highlights.length - 1];
       setSelectedHighlight(topHighlight);
-      
+
       // Calculate popup position relative to container
       if (containerRef.current) {
         const containerRect = containerRef.current.getBoundingClientRect();
@@ -507,8 +497,8 @@ export function TextAnnotator({
 
             {/* Text preview */}
             <div className="p-2 bg-muted rounded text-xs font-mono max-h-16 overflow-y-auto">
-              {pendingSelection.text.length > 100 
-                ? pendingSelection.text.substring(0, 100) + '...' 
+              {pendingSelection.text.length > 100
+                ? pendingSelection.text.substring(0, 100) + '...'
                 : pendingSelection.text}
             </div>
 
@@ -562,11 +552,11 @@ export function TextAnnotator({
             <div className="border-t pt-3 space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  {getSimilarCount(pendingSelection.text) > 0 
+                  {getSimilarCount(pendingSelection.text) > 0
                     ? `Found ${getSimilarCount(pendingSelection.text)} more similar patterns`
                     : 'No similar patterns found'}
                 </p>
-                
+
                 {/* Match mode settings */}
                 <Popover>
                   <PopoverTrigger asChild>
@@ -592,7 +582,7 @@ export function TextAnnotator({
                           </SelectContent>
                         </Select>
                       </div>
-                      
+
                       {matchMode === 'fuzzy' && (
                         <div className="space-y-1.5">
                           <Label className="text-xs font-medium">
@@ -611,7 +601,7 @@ export function TextAnnotator({
                           </p>
                         </div>
                       )}
-                      
+
                       {matchMode === 'regex' && (
                         <p className="text-[10px] text-muted-foreground">
                           Special characters are escaped. Use for pattern matching.
@@ -621,7 +611,7 @@ export function TextAnnotator({
                   </PopoverContent>
                 </Popover>
               </div>
-              
+
               {getSimilarCount(pendingSelection.text) > 0 && (
                 <div className="flex gap-1">
                   <Button
@@ -693,8 +683,8 @@ export function TextAnnotator({
 
             {/* Text preview */}
             <div className="p-2 bg-muted rounded text-xs font-mono max-h-16 overflow-y-auto">
-              {selectedHighlight.text.length > 100 
-                ? selectedHighlight.text.substring(0, 100) + '...' 
+              {selectedHighlight.text.length > 100
+                ? selectedHighlight.text.substring(0, 100) + '...'
                 : selectedHighlight.text}
             </div>
 
@@ -769,11 +759,11 @@ export function TextAnnotator({
             <div className="border-t pt-2 space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  {getSimilarCount(selectedHighlight.text) > 0 
+                  {getSimilarCount(selectedHighlight.text) > 0
                     ? `${getSimilarCount(selectedHighlight.text)} similar patterns`
                     : 'No similar patterns'}
                 </p>
-                
+
                 {/* Match mode settings */}
                 <Popover>
                   <PopoverTrigger asChild>
@@ -799,7 +789,7 @@ export function TextAnnotator({
                           </SelectContent>
                         </Select>
                       </div>
-                      
+
                       {matchMode === 'fuzzy' && (
                         <div className="space-y-1.5">
                           <Label className="text-xs font-medium">
@@ -819,15 +809,15 @@ export function TextAnnotator({
                   </PopoverContent>
                 </Popover>
               </div>
-              
+
               {getSimilarCount(selectedHighlight.text) > 0 && (
                 <Button
                   variant="outline"
                   size="sm"
                   className="w-full h-7 text-xs"
                   onClick={() => handleApplyToAllSimilar(
-                    selectedHighlight.text, 
-                    selectedHighlight.label, 
+                    selectedHighlight.text,
+                    selectedHighlight.label,
                     selectedHighlight.scope
                   )}
                 >
