@@ -446,6 +446,15 @@ export function TextAnnotator({
             return (
               <span
                 key={`${segment.start}-${segment.end}-${idx}`}
+                role="button"
+                tabIndex={0}
+                aria-label={hasHighlights ? `Annotation: ${topHighlight?.label}, Text: ${segment.text}` : `Text segment: ${segment.text}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleSegmentClick(segment, e as any);
+                  }
+                }}
                 onClick={(e) => handleSegmentClick(segment, e)}
                 className={cn(
                   'transition-colors',

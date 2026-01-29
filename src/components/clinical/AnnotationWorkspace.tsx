@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCollaboration } from '@/contexts/CollaborationContext';
 import { ChunkViewer } from '@/components/clinical/ChunkViewer';
 import { LabelingPanel } from '@/components/clinical/LabelingPanel';
@@ -32,6 +32,7 @@ import {
 } from '@/types/clinical';
 import { BatchDocument } from '@/hooks/useBatchProcessor';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { MatchResult } from '@/utils/inference';
 
 interface AnnotationWorkspaceProps {
   mode: 'training' | 'batch' | 'chart';
@@ -39,8 +40,8 @@ interface AnnotationWorkspaceProps {
   activeSelectedChunkId: string | null;
   activeAnnotation: ChunkAnnotation | undefined;
   annotationView: 'chunks' | 'highlight';
-  suggestions?: Record<string, any>; // Using any to avoid complex import cycles or define interface here
-  onAcceptSuggestion?: (chunkId: string, suggestion: any) => void;
+  suggestions?: Record<string, MatchResult>;
+  onAcceptSuggestion?: (chunkId: string, suggestion: MatchResult) => void;
   highlights: TextHighlight[];
   highlightStats: { total: number; keep: number; condense: number; remove: number };
   // Batch mode props
@@ -168,6 +169,18 @@ export function AnnotationWorkspace({
     }
   }, [activeSelectedChunkId, collab]);
 
+  const handleQuickLabel = useCallback((chunkId: string, label: PrimaryLabel) => {
+    onAnnotate(chunkId, label, {});
+  }, [onAnnotate]);
+
+  const handleAnnotate = useCallback((label: PrimaryLabel, options: any) => {
+    if (activeSelectedChunkId) onAnnotate(activeSelectedChunkId, label, options);
+  }, [activeSelectedChunkId, onAnnotate]);
+
+  const handleClear = useCallback(() => {
+    if (activeSelectedChunkId) onRemoveAnnotation(activeSelectedChunkId);
+  }, [activeSelectedChunkId, onRemoveAnnotation]);
+
   const noteSummary = activeDocument
     ? `Note type: ${activeDocument.noteType ?? 'General'} · ${activeDocument.chunks.length} segments`
     : undefined;
@@ -253,7 +266,7 @@ export function AnnotationWorkspace({
                           selectedChunkId={activeSelectedChunkId}
                           suggestions={suggestions}
                           onChunkSelect={onChunkSelect}
-                          onQuickLabel={(chunkId, label) => onAnnotate(chunkId, label, {})}
+                          onQuickLabel={handleQuickLabel}
                           onRemoveLabel={onRemoveAnnotation}
                           onAcceptSuggestion={onAcceptSuggestion}
                         />
@@ -281,12 +294,8 @@ export function AnnotationWorkspace({
                   currentReason={activeAnnotation?.removeReason}
                   currentStrategy={activeAnnotation?.condenseStrategy}
                   currentScope={activeAnnotation?.scope}
-                  onAnnotate={(label, options) => {
-                    if (activeSelectedChunkId) onAnnotate(activeSelectedChunkId, label, options);
-                  }}
-                  onClear={() => {
-                    if (activeSelectedChunkId) onRemoveAnnotation(activeSelectedChunkId);
-                  }}
+                  onAnnotate={handleAnnotate}
+                  onClear={handleClear}
                 />
                 {!activeSelectedChunkId && (
                   <div className="text-center text-muted-foreground mt-8">
@@ -502,9 +511,7 @@ export function AnnotationWorkspace({
                       selectedChunkId={activeSelectedChunkId}
                       suggestions={suggestions}
                       onChunkSelect={onChunkSelect}
-                      onQuickLabel={(chunkId, label) => {
-                        onAnnotate(chunkId, label, {});
-                      }}
+                      onQuickLabel={handleQuickLabel}
                       onRemoveLabel={onRemoveAnnotation}
                       onAcceptSuggestion={onAcceptSuggestion}
                     />
@@ -553,16 +560,8 @@ export function AnnotationWorkspace({
                   currentReason={activeAnnotation?.removeReason}
                   currentStrategy={activeAnnotation?.condenseStrategy}
                   currentScope={activeAnnotation?.scope}
-                  onAnnotate={(label, options) => {
-                    if (activeSelectedChunkId) {
-                      onAnnotate(activeSelectedChunkId, label, options);
-                    }
-                  }}
-                  onClear={() => {
-                    if (activeSelectedChunkId) {
-                      onRemoveAnnotation(activeSelectedChunkId);
-                    }
-                  }}
+                  onAnnotate={handleAnnotate}
+                  onClear={handleClear}
                 />
               </div>
             </div>

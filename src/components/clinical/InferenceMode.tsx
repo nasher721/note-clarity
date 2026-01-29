@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback } from 'react';
 import { ClinicalDocument, ChunkAnnotation, PrimaryLabel, RemoveReason, CondenseStrategy, REMOVE_REASON_LABELS, CONDENSE_STRATEGY_LABELS } from '@/types/clinical';
 import { parseDocument } from '@/utils/chunkParser';
-import { buildModelAnnotations, ExtractedField, ModelExplanation, getInferenceStats, PatternRule } from '@/utils/inferenceModel';
+import { buildModelAnnotations, ExtractedField, ModelExplanation, getInferenceStats, PatternRule } from '@/utils/inference';
 import { DocumentUploader } from './DocumentUploader';
 import { DiffPreview } from './DiffPreview';
 import { Card } from '@/components/ui/card';
@@ -334,8 +334,8 @@ export function InferenceMode({
                         selectedExplanation.annotation.label === 'KEEP'
                           ? 'bg-label-keep text-white'
                           : selectedExplanation.annotation.label === 'CONDENSE'
-                          ? 'bg-label-condense text-white'
-                          : 'bg-label-remove text-white'
+                            ? 'bg-label-condense text-white'
+                            : 'bg-label-remove text-white'
                       }
                     >
                       {selectedExplanation.annotation.label}
@@ -370,8 +370,8 @@ export function InferenceMode({
                       <span className="text-muted-foreground">Confidence:</span>
                       <span className={
                         selectedExplanation.confidence >= 0.8 ? 'text-green-500' :
-                        selectedExplanation.confidence >= 0.6 ? 'text-yellow-500' :
-                        'text-red-500'
+                          selectedExplanation.confidence >= 0.6 ? 'text-yellow-500' :
+                            'text-red-500'
                       }>
                         {Math.round(selectedExplanation.confidence * 100)}%
                       </span>
@@ -532,13 +532,12 @@ export function InferenceMode({
                 {appliedAnnotations.slice(0, 10).map((a, i) => (
                   <div
                     key={i}
-                    className={`p-2 rounded text-xs cursor-pointer transition-colors ${
-                      selectedChunkId === a.chunkId
+                    className={`p-2 rounded text-xs cursor-pointer transition-colors ${selectedChunkId === a.chunkId
                         ? 'bg-primary/10 border border-primary/30'
                         : feedbackState[a.chunkId]
-                        ? 'bg-muted/50'
-                        : 'bg-muted hover:bg-muted/80'
-                    }`}
+                          ? 'bg-muted/50'
+                          : 'bg-muted hover:bg-muted/80'
+                      }`}
                     onClick={() => {
                       setSelectedChunkId(a.chunkId);
                       setFieldFilter('selected');
@@ -607,7 +606,7 @@ export function InferenceMode({
                           </Badge>
                         </div>
                         <p className="text-muted-foreground mt-1">{field.value}</p>
-                        {field.metadata?.isAbnormal && (
+                        {(field as any).metadata?.isAbnormal && (
                           <Badge variant="destructive" className="mt-1 text-[10px]">
                             Abnormal
                           </Badge>

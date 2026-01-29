@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { ClinicalDocument, ChunkAnnotation } from '@/types/clinical';
-import { buildModelAnnotations, ModelExplanation } from '@/utils/inferenceModel';
+import { buildModelAnnotations, ModelExplanation, MatchResult } from '@/utils/inference';
 
 interface UseCopilotProps {
     document: ClinicalDocument | null;

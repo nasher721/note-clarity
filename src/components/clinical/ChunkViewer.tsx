@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, Check, Scissors, Trash2, Sparkles, Pencil, X, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ModelExplanation } from '@/utils/inferenceModel';
+import { ModelExplanation } from '@/utils/inference';
 
 interface CopilotSuggestion {
   annotation: ChunkAnnotation;
