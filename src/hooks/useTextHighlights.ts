@@ -49,7 +49,22 @@ export function useTextHighlights(userId?: string, documentId?: string) {
   }, [userId, documentId]);
 
   const addHighlight = useCallback(async (highlight: Omit<TextHighlight, 'id' | 'timestamp' | 'userId'>) => {
-    if (!userId || !documentId) return;
+    if (!userId || !documentId) {
+      console.warn('Cannot add highlight: missing userId or documentId');
+      return;
+    }
+
+    // Validate highlight bounds
+    if (highlight.startIndex < 0 || highlight.endIndex <= highlight.startIndex) {
+      console.error('Invalid highlight bounds:', highlight.startIndex, highlight.endIndex);
+      return;
+    }
+
+    // Validate text is not empty
+    if (!highlight.text || highlight.text.trim().length === 0) {
+      console.error('Highlight text is empty');
+      return;
+    }
 
     // Check for overlapping highlights with same label - merge them
     const overlapping = highlights.filter(

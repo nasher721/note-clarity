@@ -118,7 +118,55 @@ export function ChunkViewer({
             {annotation && onQuickLabel && (
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="flex items-center gap-1 bg-background/95 rounded-lg shadow-md border p-1">
-                  {/* ... existing buttons ... */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={annotation.label === 'KEEP' ? 'default' : 'ghost'}
+                        className={cn(
+                          'h-7 w-7',
+                          annotation.label === 'KEEP' ? 'bg-label-keep hover:bg-label-keep/90' : 'hover:bg-green-100 hover:text-green-700'
+                        )}
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'KEEP')}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Keep (1)</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={annotation.label === 'CONDENSE' ? 'default' : 'ghost'}
+                        className={cn(
+                          'h-7 w-7',
+                          annotation.label === 'CONDENSE' ? 'bg-label-condense hover:bg-label-condense/90 text-black' : 'hover:bg-yellow-100 hover:text-yellow-700'
+                        )}
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'CONDENSE')}
+                      >
+                        <Scissors className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Condense (2)</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant={annotation.label === 'REMOVE' ? 'default' : 'ghost'}
+                        className={cn(
+                          'h-7 w-7',
+                          annotation.label === 'REMOVE' ? 'bg-label-remove hover:bg-label-remove/90' : 'hover:bg-red-100 hover:text-red-700'
+                        )}
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'REMOVE')}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Remove (3)</TooltipContent>
+                  </Tooltip>
+                  <div className="w-px h-5 bg-border mx-0.5" />
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -154,12 +202,49 @@ export function ChunkViewer({
               </div>
             )}
 
-            {/* Click to edit hint for unlabeled chunks */}
-            {!annotation && !suggestion && !isSelected && (
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="bg-background/95 px-2 py-1 rounded-md shadow-sm border text-xs text-muted-foreground flex items-center gap-1">
-                  <Pencil className="h-3 w-3" />
-                  Click to label
+            {/* Quick label buttons for unlabeled chunks */}
+            {!annotation && !suggestion && onQuickLabel && (
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="flex items-center gap-1 bg-background/95 rounded-lg shadow-md border p-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 hover:bg-green-100 hover:text-green-700"
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'KEEP')}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Keep (1)</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 hover:bg-yellow-100 hover:text-yellow-700"
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'CONDENSE')}
+                      >
+                        <Scissors className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Condense (2)</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 hover:bg-red-100 hover:text-red-700"
+                        onClick={(e) => handleQuickLabel(e, chunk.id, 'REMOVE')}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Remove (3)</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             )}

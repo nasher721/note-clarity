@@ -312,11 +312,12 @@ export function TextAnnotator({
       const selectedTextStr = range.toString();
       const endIndex = startIndex + selectedTextStr.length;
 
-      // Validate against the actual text content length to prevent bounds errors
-      if (endIndex <= text.length) {
+      // Validate bounds - ensure both start and end are within text length
+      if (startIndex >= 0 && endIndex <= text.length && startIndex < endIndex) {
         // Use text.substring to ensure we get the exact source text chars
         const exactText = text.substring(startIndex, endIndex);
 
+        // Only proceed if there's actual content (not just whitespace)
         if (exactText.trim().length > 0) {
           setPendingSelection({ start: startIndex, end: endIndex, text: exactText });
           setSelectedHighlight(null);
@@ -335,7 +336,10 @@ export function TextAnnotator({
       console.error('Selection error:', err);
     }
 
-    selection.removeAllRanges();
+    // Clear selection after processing to prevent interference with next selection
+    setTimeout(() => {
+      selection.removeAllRanges();
+    }, 0);
   }, [activeTool, text]);
 
   const handleSegmentClick = useCallback((segment: RenderedSegment, e: React.MouseEvent) => {

@@ -76,6 +76,12 @@ export function useAnnotations(
 
       onDocumentUpdate(updatedDoc);
 
+      // Show feedback for successful labeling
+      toast({
+        title: `Labeled as ${label}`,
+        description: chunk.text.length > 50 ? chunk.text.substring(0, 50) + '...' : chunk.text,
+      });
+
       // If scope is not this_document, also create/update a learned rule
       if (options.scope && options.scope !== 'this_document') {
         await supabase
