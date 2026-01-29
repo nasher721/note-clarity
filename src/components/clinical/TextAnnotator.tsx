@@ -99,7 +99,7 @@ export function TextAnnotator({
 
   const segments = useMemo(() => buildSegments(text, highlights), [text, highlights]);
 
-  // Click-away behavior to close popup
+  // Click-away behavior to close popup - use mouseup to avoid interfering with text selection
   useEffect(() => {
     if (!popupPosition) return;
 
@@ -117,8 +117,15 @@ export function TextAnnotator({
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    // Use a short delay to ensure the selection handler runs first
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', handleClickOutside);
+    };
   }, [popupPosition]);
 
   const handleApplyPendingLabel = useCallback((label: PrimaryLabel) => {
@@ -318,6 +325,7 @@ export function TextAnnotator({
         const exactText = text.substring(startIndex, endIndex);
 
         if (exactText.trim().length > 0) {
+          // Set pending selection BEFORE clearing the selection
           setPendingSelection({ start: startIndex, end: endIndex, text: exactText });
           setSelectedHighlight(null);
 
@@ -329,12 +337,20 @@ export function TextAnnotator({
             const y = e.clientY - containerRect.top;
             setPopupPosition({ x, y });
           }
+
+          // Clear the browser selection after capturing the data
+          // Use setTimeout to ensure state updates are processed first
+          setTimeout(() => {
+            window.getSelection()?.removeAllRanges();
+          }, 0);
+          return;
         }
       }
     } catch (err) {
       console.error('Selection error:', err);
     }
 
+    // Only clear if we didn't successfully capture a selection
     selection.removeAllRanges();
   }, [activeTool, text]);
 

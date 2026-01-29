@@ -8,8 +8,14 @@ import {
   PatternRule
 } from '@/services/activeLearningService';
 import { ChunkAnnotation, PrimaryLabel, RemoveReason, CondenseStrategy } from '@/types/clinical';
-import { ModelExplanation } from '@/utils/inferenceModel';
 import { toast } from '@/hooks/use-toast';
+
+interface ModelExplanation {
+  source: string;
+  confidence: number;
+  reason: string;
+  signals?: string[];
+}
 
 interface UseActiveLearningOptions {
   userId: string | undefined;

@@ -293,10 +293,9 @@ export function ModelAnalyticsDashboard({
                         {rule.patternValue}
                       </p>
                       <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                        <span>Matched: {rule.timesMatched}</span>
-                        <span>Accepted: {rule.timesAccepted}</span>
+                        <span>Uses: {rule.usageCount || 0}</span>
                         <span>
-                          Effectiveness: {Math.round(rule.effectivenessScore * 100)}%
+                          Status: {rule.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </div>
                     </div>
