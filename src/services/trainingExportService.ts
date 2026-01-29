@@ -285,15 +285,8 @@ export class TrainingExportService {
         break;
     }
 
-    // Record export in database
-    await supabase.from('training_exports').insert({
-      user_id: userId,
-      export_name: filename,
-      export_format: options.format,
-      record_count: filtered.length,
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-    });
+    // Note: Export history tracking requires training_exports table (can be added via migration)
+    // Skipping database recording for now
 
     return {
       content,
@@ -320,17 +313,11 @@ export class TrainingExportService {
 
   /**
    * Get export history for a user
+   * Note: Requires training_exports table (can be added via migration)
    */
-  static async getExportHistory(userId: string) {
-    const { data, error } = await supabase
-      .from('training_exports')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    if (error) throw error;
-    return data || [];
+  static async getExportHistory(_userId: string) {
+    // Return empty array - table doesn't exist yet
+    return [];
   }
 
   /**
