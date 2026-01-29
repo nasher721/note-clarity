@@ -2,6 +2,15 @@
 import { ChunkAnnotation, CondenseStrategy, DocumentChunk, PrimaryLabel, RemoveReason } from '@/types/clinical';
 import { findDuplicates } from '@/utils/chunkParser';
 import { SemanticSearchService } from '@/services/semanticSearchService';
+import {
+  extractFieldsFromChunk as extractFieldsEnhanced,
+  dedupeExtractedFields as dedupeFieldsEnhanced,
+  ExtractedField,
+  ExtractedFieldCategory,
+} from '@/utils/clinicalExtraction';
+
+// Re-export for backward compatibility
+export type { ExtractedField, ExtractedFieldCategory };
 
 const STOPWORDS = new Set([
   'a',
@@ -41,6 +50,9 @@ const NORMAL_EXAM_PATTERNS = [
   /normal (physical exam|exam)/i,
   /no acute distress/i,
   /nad\b/i,
+  /within normal limits/i,
+  /unremarkable/i,
+  /negative for/i,
 ];
 
 const ADMINISTRATIVE_PATTERNS = [
@@ -48,11 +60,29 @@ const ADMINISTRATIVE_PATTERNS = [
   /follow up with/i,
   /appointment scheduled/i,
   /contact information/i,
+  /return precautions/i,
+  /if symptoms worsen/i,
+  /call your doctor if/i,
+  /patient education/i,
+];
+
+const BOILERPLATE_PATTERNS = [
+  /I have personally seen and examined the patient/i,
+  /I was present for the key portions/i,
+  /I agree with the resident's assessment/i,
+  /The above note was reviewed and edited/i,
+  /electronically signed by/i,
+  /This note was generated/i,
+  /attestation/i,
+  /time spent on discharge/i,
+  /total face-to-face time/i,
+  /more than \d+ minutes/i,
 ];
 
 export type ModelSource =
   | 'learned_exact'
   | 'learned_similar'
+  | 'pattern_rule'
   | 'duplicate_detector'
   | 'heuristic_rules'
   | 'critical_safety'
@@ -65,24 +95,16 @@ export interface ModelExplanation {
   signals?: string[];
 }
 
-export type ExtractedFieldCategory =
-  | 'vital_signs'
-  | 'lab_value'
-  | 'medication'
-  | 'diagnosis'
-  | 'procedure'
-  | 'date_time'
-  | 'key_value'
-  | 'allergy'
-  | 'problem';
-
-export interface ExtractedField {
+export interface PatternRule {
   id: string;
-  category: ExtractedFieldCategory;
-  label: string;
-  value: string;
-  confidence: number;
-  sourceChunkId: string;
+  patternType: 'regex' | 'keyword' | 'ngram' | 'semantic';
+  patternValue: string;
+  label: PrimaryLabel;
+  removeReason?: RemoveReason;
+  condenseStrategy?: CondenseStrategy;
+  chunkType?: string;
+  scope: string;
+  effectivenessScore: number;
 }
 
 interface MatchResult {
@@ -98,6 +120,27 @@ interface CandidateSignal {
   removeReason?: RemoveReason;
   condenseStrategy?: CondenseStrategy;
 }
+
+/**
+ * Configuration for inference model behavior
+ */
+export interface InferenceConfig {
+  semanticThreshold: number;
+  jaccardThreshold: number;
+  minConfidenceThreshold: number;
+  enablePatternRules: boolean;
+  enableSemanticSearch: boolean;
+  confidenceCalibration: 'none' | 'conservative' | 'aggressive';
+}
+
+const DEFAULT_CONFIG: InferenceConfig = {
+  semanticThreshold: 0.75,
+  jaccardThreshold: 0.5,
+  minConfidenceThreshold: 0.6,
+  enablePatternRules: true,
+  enableSemanticSearch: true,
+  confidenceCalibration: 'none',
+};
 
 const normalizeText = (text: string) =>
   text.toLowerCase().replace(NORMALIZED_PUNCTUATION, ' ').replace(MULTISPACE, ' ').trim();
@@ -126,15 +169,100 @@ const scopeWeight = (scope: ChunkAnnotation['scope'], noteType?: string, service
   return 0.8;
 };
 
+/**
+ * Apply confidence calibration based on configuration
+ */
+const calibrateConfidence = (confidence: number, config: InferenceConfig): number => {
+  if (config.confidenceCalibration === 'conservative') {
+    // Reduce confidence for borderline predictions
+    if (confidence < 0.85) {
+      return confidence * 0.9;
+    }
+    return confidence;
+  }
+  if (config.confidenceCalibration === 'aggressive') {
+    // Boost confidence for high-confidence predictions
+    if (confidence > 0.7) {
+      return Math.min(confidence * 1.1, 0.98);
+    }
+    return confidence;
+  }
+  return confidence;
+};
+
+/**
+ * Match chunk against pattern rules
+ */
+const matchPatternRules = (
+  chunk: DocumentChunk,
+  patternRules: PatternRule[],
+): MatchResult | null => {
+  if (!patternRules || patternRules.length === 0) return null;
+
+  const normalizedText = normalizeText(chunk.text);
+
+  for (const rule of patternRules) {
+    let matched = false;
+
+    switch (rule.patternType) {
+      case 'keyword':
+        matched = normalizedText.includes(rule.patternValue.toLowerCase());
+        break;
+
+      case 'ngram':
+        matched = normalizedText.includes(rule.patternValue.toLowerCase());
+        break;
+
+      case 'regex':
+        try {
+          const regex = new RegExp(rule.patternValue, 'i');
+          matched = regex.test(chunk.text);
+        } catch {
+          // Invalid regex, skip
+        }
+        break;
+    }
+
+    if (matched && (!rule.chunkType || rule.chunkType === chunk.type)) {
+      const confidence = Math.min(0.7 + rule.effectivenessScore * 0.25, 0.92);
+
+      const annotation: ChunkAnnotation = {
+        chunkId: chunk.id,
+        rawText: chunk.text,
+        sectionType: chunk.type,
+        label: rule.label,
+        removeReason: rule.removeReason,
+        condenseStrategy: rule.condenseStrategy,
+        scope: rule.scope as ChunkAnnotation['scope'],
+        timestamp: new Date(),
+        userId: 'system',
+      };
+
+      return {
+        annotation,
+        explanation: {
+          source: 'pattern_rule',
+          confidence,
+          reason: `Matched ${rule.patternType} pattern: "${rule.patternValue.slice(0, 30)}..."`,
+          signals: [`Pattern type: ${rule.patternType}`, `Effectiveness: ${Math.round(rule.effectivenessScore * 100)}%`],
+        },
+      };
+    }
+  }
+
+  return null;
+};
+
 const getSimilarityMatch = async (
   chunk: DocumentChunk,
   learnedAnnotations: ChunkAnnotation[],
   noteType?: string,
   service?: string,
+  config: InferenceConfig = DEFAULT_CONFIG,
 ) => {
   const normalizedChunk = normalizeText(chunk.text);
 
-  // 1. Exact exact match first (cheapest)
+  // 1. Exact match first (cheapest)
   for (const annotation of learnedAnnotations) {
     if (normalizeText(annotation.rawText) === normalizedChunk) {
       return { annotation, score: 1 };
@@ -142,38 +270,39 @@ const getSimilarityMatch = async (
   }
 
   // 2. Semantic Search (Most accurate, expensive)
-  try {
-    const model = await SemanticSearchService.getModel(); // Check if loaded
-    const texts = [chunk.text, ...learnedAnnotations.map(a => a.rawText)];
-    const embeddings = await SemanticSearchService.embed(texts);
+  if (config.enableSemanticSearch) {
+    try {
+      await SemanticSearchService.getModel(); // Check if loaded
+      const texts = [chunk.text, ...learnedAnnotations.map(a => a.rawText)];
+      const embeddings = await SemanticSearchService.embed(texts);
 
-    const chunkEmbedding = embeddings[0];
-    const ruleEmbeddings = embeddings.slice(1);
+      const chunkEmbedding = embeddings[0];
+      const ruleEmbeddings = embeddings.slice(1);
 
-    let bestSemMatch: { annotation: ChunkAnnotation; score: number } | null = null;
+      let bestSemMatch: { annotation: ChunkAnnotation; score: number } | null = null;
 
-    ruleEmbeddings.forEach((embedding, i) => {
-      const score = SemanticSearchService.cosineSimilarity(chunkEmbedding, embedding);
-      if (score > 0.75) { // Threshold for semantic match
-        const annotation = learnedAnnotations[i];
-        const weighted = score * scopeWeight(annotation.scope, noteType, service);
-        if (!bestSemMatch || weighted > bestSemMatch.score) {
-          bestSemMatch = { annotation, score: weighted };
+      ruleEmbeddings.forEach((embedding, i) => {
+        const score = SemanticSearchService.cosineSimilarity(chunkEmbedding, embedding);
+        if (score > config.semanticThreshold) {
+          const annotation = learnedAnnotations[i];
+          const weighted = score * scopeWeight(annotation.scope, noteType, service);
+          if (!bestSemMatch || weighted > bestSemMatch.score) {
+            bestSemMatch = { annotation, score: weighted };
+          }
         }
-      }
-    });
+      });
 
-    if (bestSemMatch) return bestSemMatch;
-
-  } catch (e) {
-    // Fallback if model failed or not loaded
+      if (bestSemMatch) return bestSemMatch;
+    } catch {
+      // Fallback if model failed or not loaded
+    }
   }
 
   // 3. Jaccard Index (Fallback)
   let bestMatch: { annotation: ChunkAnnotation; score: number } | null = null;
   for (const annotation of learnedAnnotations) {
     const similarity = jaccardSimilarity(chunk.text, annotation.rawText);
-    if (similarity < 0.5) continue;
+    if (similarity < config.jaccardThreshold) continue;
 
     const weighted = similarity * scopeWeight(annotation.scope, noteType, service);
     if (!bestMatch || weighted > bestMatch.score) {
@@ -191,7 +320,7 @@ const getHeuristicLabel = (
     return {
       label: 'KEEP',
       confidence: 0.95,
-      reason: 'Critical clinical indicator detected',
+      reason: `Critical clinical indicator: ${chunk.criticalType || 'detected'}`,
     };
   }
 
@@ -199,7 +328,7 @@ const getHeuristicLabel = (
     return {
       label: 'KEEP',
       confidence: 0.9,
-      reason: 'Section headers preserved',
+      reason: 'Section headers preserved for structure',
     };
   }
 
@@ -207,8 +336,18 @@ const getHeuristicLabel = (
     return {
       label: 'REMOVE',
       removeReason: 'billing_attestation',
-      confidence: 0.82,
-      reason: 'Attestation statement',
+      confidence: 0.85,
+      reason: 'Attestation/billing statement',
+    };
+  }
+
+  // Check for boilerplate patterns
+  if (BOILERPLATE_PATTERNS.some(pattern => pattern.test(chunk.text))) {
+    return {
+      label: 'REMOVE',
+      removeReason: 'boilerplate_template',
+      confidence: 0.8,
+      reason: 'Boilerplate template text',
     };
   }
 
@@ -217,7 +356,7 @@ const getHeuristicLabel = (
       label: 'REMOVE',
       removeReason: 'normal_ros_exam',
       confidence: 0.78,
-      reason: 'Normal ROS/exam boilerplate',
+      reason: 'Normal ROS/exam findings (non-contributory)',
     };
   }
 
@@ -226,11 +365,11 @@ const getHeuristicLabel = (
       label: 'REMOVE',
       removeReason: 'administrative_text',
       confidence: 0.72,
-      reason: 'Administrative follow-up language',
+      reason: 'Administrative/non-clinical text',
     };
   }
 
-  if (/copy forward|copied from prior|copied prior note/i.test(chunk.text)) {
+  if (/copy forward|copied from prior|copied prior note|see previous note/i.test(chunk.text)) {
     return {
       label: 'REMOVE',
       removeReason: 'copied_prior_note',
@@ -239,7 +378,7 @@ const getHeuristicLabel = (
     };
   }
 
-  if (/unchanged from prior|no interval change|stable compared to/i.test(chunk.text)) {
+  if (/unchanged from prior|no interval change|stable compared to|no significant change/i.test(chunk.text)) {
     if (chunk.type === 'imaging_report') {
       return {
         label: 'REMOVE',
@@ -253,17 +392,18 @@ const getHeuristicLabel = (
         label: 'REMOVE',
         removeReason: 'repeated_labs',
         confidence: 0.72,
-        reason: 'Lab results repeated without change',
+        reason: 'Lab results repeated without significant change',
       };
     }
   }
 
+  // Condense strategies
   if (chunk.type === 'lab_values' && chunk.text.length > 250) {
     return {
       label: 'CONDENSE',
       condenseStrategy: 'abnormal_only',
       confidence: 0.7,
-      reason: 'Dense lab section',
+      reason: 'Dense lab section - show abnormals only',
     };
   }
 
@@ -272,7 +412,7 @@ const getHeuristicLabel = (
       label: 'CONDENSE',
       condenseStrategy: 'one_line_summary',
       confidence: 0.68,
-      reason: 'Long imaging narrative',
+      reason: 'Long imaging narrative - summarize findings',
     };
   }
 
@@ -281,7 +421,7 @@ const getHeuristicLabel = (
       label: 'CONDENSE',
       condenseStrategy: 'one_line_summary',
       confidence: 0.64,
-      reason: 'Long medication list',
+      reason: 'Long medication list - highlight changes',
     };
   }
 
@@ -290,7 +430,7 @@ const getHeuristicLabel = (
       label: 'CONDENSE',
       condenseStrategy: 'problem_based_summary',
       confidence: 0.62,
-      reason: 'Extended narrative section',
+      reason: 'Extended narrative - problem-based summary',
     };
   }
 
@@ -337,9 +477,9 @@ const getDuplicateSuggestion = (chunk: DocumentChunk, duplicates: Set<string>): 
     annotation,
     explanation: {
       source: 'duplicate_detector',
-      confidence: 0.74,
-      reason: 'Repeated text detected in note',
-      signals: ['Text overlaps earlier section'],
+      confidence: 0.78,
+      reason: 'Duplicate text detected in note',
+      signals: ['Content appears earlier in document'],
     },
   };
 };
@@ -349,10 +489,11 @@ const getLearnedSuggestion = async (
   learnedAnnotations: ChunkAnnotation[],
   noteType?: string,
   service?: string,
+  config: InferenceConfig = DEFAULT_CONFIG,
 ): Promise<MatchResult | null> => {
   if (!learnedAnnotations.length) return null;
 
-  const match = await getSimilarityMatch(chunk, learnedAnnotations, noteType, service);
+  const match = await getSimilarityMatch(chunk, learnedAnnotations, noteType, service, config);
   if (!match) return null;
 
   if (match.score < 0.7) return null;
@@ -363,12 +504,14 @@ const getLearnedSuggestion = async (
     scope: match.annotation.scope,
   });
 
+  const isExact = match.score >= 0.95;
+
   return {
     annotation,
     explanation: {
-      source: match.score >= 0.95 ? 'learned_exact' : 'learned_similar',
+      source: isExact ? 'learned_exact' : 'learned_similar',
       confidence: Math.min(match.score, 0.95),
-      reason: match.score >= 0.95 ? 'Exact match to learned rule' : 'Similar wording to learned rule',
+      reason: isExact ? 'Exact match to learned rule' : 'Similar to learned rule',
       signals: [
         `Scope: ${match.annotation.scope.replace(/_/g, ' ')}`,
         `Similarity: ${Math.round(match.score * 100)}%`,
@@ -377,8 +520,27 @@ const getLearnedSuggestion = async (
   };
 };
 
-const buildCandidateSignals = (chunk: DocumentChunk): CandidateSignal[] => {
+const buildCandidateSignals = (
+  chunk: DocumentChunk,
+  patternRules?: PatternRule[],
+): CandidateSignal[] => {
   const signals: CandidateSignal[] = [];
+
+  // Check pattern rules first
+  if (patternRules) {
+    const patternMatch = matchPatternRules(chunk, patternRules);
+    if (patternMatch) {
+      signals.push({
+        label: patternMatch.annotation.label,
+        confidence: patternMatch.explanation.confidence,
+        reason: patternMatch.explanation.reason || 'Pattern rule match',
+        source: 'pattern_rule',
+        removeReason: patternMatch.annotation.removeReason,
+        condenseStrategy: patternMatch.annotation.condenseStrategy,
+      });
+    }
+  }
+
   const heuristic = getHeuristicLabel(chunk);
   if (heuristic.label && heuristic.confidence && heuristic.reason) {
     signals.push({
@@ -403,7 +565,7 @@ const buildCandidateSignals = (chunk: DocumentChunk): CandidateSignal[] => {
   return signals;
 };
 
-const mergeSignals = (signals: CandidateSignal[]) => {
+const mergeSignals = (signals: CandidateSignal[], config: InferenceConfig = DEFAULT_CONFIG) => {
   if (!signals.length) return null;
 
   const grouped = new Map<PrimaryLabel, CandidateSignal[]>();
@@ -415,10 +577,13 @@ const mergeSignals = (signals: CandidateSignal[]) => {
 
   const ranked = Array.from(grouped.entries()).map(([label, items]) => {
     const avgConfidence = items.reduce((sum, item) => sum + item.confidence, 0) / items.length;
-    const boosted = Math.min(avgConfidence + Math.min(items.length * 0.05, 0.12), 0.97);
+    // Boost confidence when multiple signals agree
+    const boost = Math.min(items.length * 0.05, 0.12);
+    const boosted = Math.min(avgConfidence + boost, 0.97);
+
     return {
       label,
-      confidence: boosted,
+      confidence: calibrateConfidence(boosted, config),
       reasons: items.map(item => item.reason),
       sources: items.map(item => item.source),
       removeReason: items.find(item => item.removeReason)?.removeReason,
@@ -427,7 +592,14 @@ const mergeSignals = (signals: CandidateSignal[]) => {
   });
 
   ranked.sort((a, b) => b.confidence - a.confidence);
-  return ranked[0];
+
+  // Only return if above minimum threshold
+  const best = ranked[0];
+  if (best && best.confidence >= config.minConfidenceThreshold) {
+    return best;
+  }
+
+  return null;
 };
 
 const applyCriticalSafety = (chunk: DocumentChunk, candidate: CandidateSignal) => {
@@ -437,171 +609,29 @@ const applyCriticalSafety = (chunk: DocumentChunk, candidate: CandidateSignal) =
     ...candidate,
     label: 'KEEP' as PrimaryLabel,
     confidence: Math.max(candidate.confidence - 0.15, 0.6),
-    reason: 'Critical content retained despite removal signal',
+    reason: `Critical content retained (${chunk.criticalType || 'clinical indicator'})`,
     source: 'critical_safety' as ModelSource,
     removeReason: undefined,
   };
 };
 
-const normalizeFieldText = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
-
-const boostByChunkType = (chunk: DocumentChunk, base: number) => {
-  const boost = chunk.type === 'section_header' ? 0.1 : chunk.isCritical ? 0.08 : 0;
-  return Math.min(base + boost, 0.95);
-};
-
-const extractFieldsFromChunk = (chunk: DocumentChunk): ExtractedField[] => {
-  const fields: ExtractedField[] = [];
-  const base = {
-    sourceChunkId: chunk.id,
-  };
-
-  const keyValueMatches = chunk.text.matchAll(/([A-Za-z][A-Za-z\s\/]+):\s*([^\n]+)/g);
-  for (const match of keyValueMatches) {
-    const label = match[1].trim().slice(0, 40);
-    const value = match[2].trim().slice(0, 120);
-    if (label.length < 2 || value.length < 2) continue;
-    fields.push({
-      ...base,
-      id: `${chunk.id}-kv-${fields.length}`,
-      category: 'key_value',
-      label,
-      value,
-      confidence: boostByChunkType(chunk, 0.62),
-    });
-  }
-
-  const vitals = [
-    { label: 'BP', pattern: /\bBP[:\s]*([0-9]{2,3}\/[0-9]{2,3})/i },
-    { label: 'HR', pattern: /\bHR[:\s]*([0-9]{2,3})/i },
-    { label: 'RR', pattern: /\bRR[:\s]*([0-9]{1,2})/i },
-    { label: 'Temp', pattern: /\bTemp(?:erature)?[:\s]*([0-9]{2,3}(?:\.[0-9])?\s*[FC]?)/i },
-    { label: 'SpO2', pattern: /\bSpO2[:\s]*([0-9]{2,3}%?)/i },
-  ];
-  for (const vital of vitals) {
-    const match = chunk.text.match(vital.pattern);
-    if (match) {
-      fields.push({
-        ...base,
-        id: `${chunk.id}-vital-${vital.label}`,
-        category: 'vital_signs',
-        label: vital.label,
-        value: match[1],
-        confidence: boostByChunkType(chunk, 0.75),
-      });
-    }
-  }
-
-  const labRegex = /\b(WBC|Hgb|HCT|Plt|Na|K|Cl|CO2|BUN|Cr|Glucose|AST|ALT|Bili)\b[:\s]*([0-9]+(?:\.[0-9]+)?)/gi;
-  for (const match of chunk.text.matchAll(labRegex)) {
-    fields.push({
-      ...base,
-      id: `${chunk.id}-lab-${match[1]}-${fields.length}`,
-      category: 'lab_value',
-      label: match[1],
-      value: match[2],
-      confidence: boostByChunkType(chunk, 0.68),
-    });
-  }
-
-  const medRegex = /([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?)\s+([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g|units)\b([^.\n]*)/g;
-  for (const match of chunk.text.matchAll(medRegex)) {
-    const tail = match[4]?.trim();
-    fields.push({
-      ...base,
-      id: `${chunk.id}-med-${fields.length}`,
-      category: 'medication',
-      label: match[1],
-      value: `${match[2]} ${match[3]}${tail ? ` ${tail}` : ''}`.trim(),
-      confidence: boostByChunkType(chunk, 0.6),
-    });
-  }
-
-  const diagnosisMatch = chunk.text.match(/\b(?:dx|diagnosis|impression)[:\s]*([^\n]+)/i);
-  if (diagnosisMatch) {
-    fields.push({
-      ...base,
-      id: `${chunk.id}-dx`,
-      category: 'diagnosis',
-      label: 'Diagnosis',
-      value: diagnosisMatch[1].trim().slice(0, 120),
-      confidence: boostByChunkType(chunk, 0.58),
-    });
-  }
-
-  const procedureMatch = chunk.text.match(/\b(?:procedure|performed)[:\s]*([^\n]+)/i);
-  if (procedureMatch) {
-    fields.push({
-      ...base,
-      id: `${chunk.id}-proc`,
-      category: 'procedure',
-      label: 'Procedure',
-      value: procedureMatch[1].trim().slice(0, 120),
-      confidence: boostByChunkType(chunk, 0.55),
-    });
-  }
-
-  const allergyMatch = chunk.text.match(/\b(allerg(?:y|ies)|NKDA|no known drug allergies)[:\s]*([^\n]+)/i);
-  if (allergyMatch) {
-    fields.push({
-      ...base,
-      id: `${chunk.id}-allergy`,
-      category: 'allergy',
-      label: 'Allergies',
-      value: allergyMatch[2]?.trim() || allergyMatch[1],
-      confidence: boostByChunkType(chunk, 0.76),
-    });
-  }
-
-  const problemMatch = chunk.text.match(/\b(problem list|diagnoses|active problems)[:\s]*([^\n]+)/i);
-  if (problemMatch) {
-    fields.push({
-      ...base,
-      id: `${chunk.id}-problem`,
-      category: 'problem',
-      label: 'Problem List',
-      value: problemMatch[2]?.trim() || problemMatch[1],
-      confidence: boostByChunkType(chunk, 0.6),
-    });
-  }
-
-  const dateMatch = chunk.text.match(/\b(\d{1,2}\/\d{1,2}\/\d{2,4}(?:\s+\d{1,2}:\d{2}(?:\s*(?:AM|PM))?)?|\d{4}-\d{2}-\d{2})\b/);
-  if (dateMatch) {
-    fields.push({
-      ...base,
-      id: `${chunk.id}-date`,
-      category: 'date_time',
-      label: 'Date',
-      value: dateMatch[1],
-      confidence: boostByChunkType(chunk, 0.57),
-    });
-  }
-
-  return fields;
-};
-
-const dedupeExtractedFields = (fields: ExtractedField[]) => {
-  const deduped = new Map<string, ExtractedField>();
-  for (const field of fields) {
-    const key = `${field.category}::${normalizeFieldText(field.label)}::${normalizeFieldText(field.value)}`;
-    const existing = deduped.get(key);
-    if (!existing || field.confidence > existing.confidence) {
-      deduped.set(key, field);
-    }
-  }
-  return Array.from(deduped.values());
-};
-
+/**
+ * Build model annotations for a document
+ */
 export const buildModelAnnotations = async ({
   chunks,
   learnedAnnotations,
   noteType,
   service,
+  patternRules,
+  config = DEFAULT_CONFIG,
 }: {
   chunks: DocumentChunk[];
   learnedAnnotations: ChunkAnnotation[];
   noteType?: string;
   service?: string;
+  patternRules?: PatternRule[];
+  config?: InferenceConfig;
 }) => {
   const annotations: ChunkAnnotation[] = [];
   const explanations: Record<string, ModelExplanation> = {};
@@ -610,15 +640,28 @@ export const buildModelAnnotations = async ({
   const duplicates = findDuplicates(chunks);
 
   for (const chunk of chunks) {
-    extractedFields.push(...extractFieldsFromChunk(chunk));
+    // Use enhanced field extraction
+    extractedFields.push(...extractFieldsEnhanced(chunk));
 
-    const learned = await getLearnedSuggestion(chunk, learnedAnnotations, noteType, service);
+    // 1. Check learned rules first (highest priority)
+    const learned = await getLearnedSuggestion(chunk, learnedAnnotations, noteType, service, config);
     if (learned) {
       annotations.push(learned.annotation);
       explanations[chunk.id] = learned.explanation;
       continue;
     }
 
+    // 2. Check pattern rules
+    if (config.enablePatternRules && patternRules) {
+      const patternMatch = matchPatternRules(chunk, patternRules);
+      if (patternMatch && patternMatch.explanation.confidence >= config.minConfidenceThreshold) {
+        annotations.push(patternMatch.annotation);
+        explanations[chunk.id] = patternMatch.explanation;
+        continue;
+      }
+    }
+
+    // 3. Check duplicates
     const duplicateSuggestion = getDuplicateSuggestion(chunk, duplicates);
     if (duplicateSuggestion) {
       annotations.push(duplicateSuggestion.annotation);
@@ -626,8 +669,10 @@ export const buildModelAnnotations = async ({
       continue;
     }
 
-    const candidates = buildCandidateSignals(chunk);
-    const merged = mergeSignals(candidates);
+    // 4. Build candidate signals from heuristics
+    const candidates = buildCandidateSignals(chunk, patternRules);
+    const merged = mergeSignals(candidates, config);
+
     if (merged) {
       const safeCandidate = applyCriticalSafety(chunk, {
         label: merged.label,
@@ -637,10 +682,12 @@ export const buildModelAnnotations = async ({
         removeReason: merged.removeReason,
         condenseStrategy: merged.condenseStrategy,
       });
+
       const annotation = buildAnnotation(chunk, safeCandidate.label, {
         removeReason: safeCandidate.removeReason,
         condenseStrategy: safeCandidate.condenseStrategy,
       });
+
       annotations.push(annotation);
       explanations[chunk.id] = {
         source: safeCandidate.source,
@@ -651,5 +698,72 @@ export const buildModelAnnotations = async ({
     }
   }
 
-  return { annotations, explanations, extractedFields: dedupeExtractedFields(extractedFields) };
+  return {
+    annotations,
+    explanations,
+    extractedFields: dedupeFieldsEnhanced(extractedFields),
+  };
+};
+
+/**
+ * Quick inference without semantic search (faster)
+ */
+export const buildModelAnnotationsQuick = async (params: {
+  chunks: DocumentChunk[];
+  learnedAnnotations: ChunkAnnotation[];
+  noteType?: string;
+  service?: string;
+  patternRules?: PatternRule[];
+}) => {
+  return buildModelAnnotations({
+    ...params,
+    config: {
+      ...DEFAULT_CONFIG,
+      enableSemanticSearch: false,
+    },
+  });
+};
+
+/**
+ * Get inference statistics
+ */
+export const getInferenceStats = (
+  annotations: ChunkAnnotation[],
+  explanations: Record<string, ModelExplanation>
+) => {
+  const sources = Object.values(explanations).map(e => e.source);
+  const confidences = Object.values(explanations).map(e => e.confidence);
+
+  const sourceDistribution: Record<ModelSource, number> = {
+    learned_exact: 0,
+    learned_similar: 0,
+    pattern_rule: 0,
+    duplicate_detector: 0,
+    heuristic_rules: 0,
+    critical_safety: 0,
+    combined_signals: 0,
+  };
+
+  for (const source of sources) {
+    sourceDistribution[source]++;
+  }
+
+  const labelDistribution: Record<PrimaryLabel, number> = {
+    KEEP: 0,
+    CONDENSE: 0,
+    REMOVE: 0,
+  };
+
+  for (const annotation of annotations) {
+    labelDistribution[annotation.label]++;
+  }
+
+  return {
+    totalChunks: annotations.length,
+    avgConfidence: confidences.length > 0
+      ? confidences.reduce((a, b) => a + b, 0) / confidences.length
+      : 0,
+    sourceDistribution,
+    labelDistribution,
+  };
 };
